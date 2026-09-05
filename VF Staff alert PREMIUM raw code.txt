@@ -1,0 +1,1763 @@
+--========================================================--
+--  Staff Alert by we1qxpo7j8fgkh3ok0ji
+--  Keybind: T
+--  This script is private property.
+----========================================================--
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+local StarterGui = game:GetService("StarterGui")
+local CoreGui = game:GetService("CoreGui")
+local SoundService = game:GetService("SoundService")
+local GroupService = game:GetService("GroupService")
+
+local localPlayer = Players.LocalPlayer
+
+local function randomString(len)
+    local res = {}
+    for i = 1, len do
+        res[i] = string.char(math.random(97, 122))
+    end
+    return table.concat(res)
+end
+
+local ids = {
+    gui = randomString(12),
+    main = randomString(10),
+    header = randomString(9),
+    logo = randomString(8),
+    title = randomString(7),
+    status = randomString(9),
+    close = randomString(6),
+    content = randomString(11)
+}
+
+local theme = {
+    BackgroundPrimary = Color3.fromRGB(5, 5, 15),
+    BackgroundSecondary = Color3.fromRGB(10, 10, 25),
+    BackgroundTertiary = Color3.fromRGB(15, 15, 35),
+    AccentPrimary = Color3.fromRGB(0, 100, 255),
+    AccentSecondary = Color3.fromRGB(31, 81, 255),
+    TextPrimary = Color3.fromRGB(255, 255, 255),
+    TextSecondary = Color3.fromRGB(150, 180, 255),
+    Success = Color3.fromRGB(0, 255, 150),
+    Warning = Color3.fromRGB(255, 100, 0),
+    PossibleStaff = Color3.fromRGB(255, 220, 0),
+    ToggleKey = Enum.KeyCode.T
+}
+
+local function isPlayerTyping()
+    return UserInputService:GetFocusedTextBox() ~= nil
+end
+
+local config = {
+    StaffESPEnabled = true,
+    NotificationsEnabled = true,
+    SoundsEnabled = true,
+    AutoArmorEnabled = false,
+}
+
+local state = {
+    Visible = true,
+    TagLoops = {},
+    Connections = {},
+    StaffESPFolder = nil,
+    UndercoverESPFolder = nil,
+    PossibleESPFolder = nil,
+    Notifications = {}
+}
+
+-- === GROUP CONFIG ===
+local MAIN_GROUP_IDS = { 848374803, 996191638  }
+
+local POSSIBLE_STAFF_GROUP_IDS = { 922296613 }
+
+-- Group name cache — fetched live from Roblox, never hardcoded
+local groupNameCache = {}
+local function getGroupName(id)
+    if groupNameCache[id] then return groupNameCache[id] end
+    local ok, info = pcall(function() return GroupService:GetGroupInfoAsync(id) end)
+    local name = (ok and info and info.Name) or ("Group " .. id)
+    groupNameCache[id] = name
+    return name
+end
+
+-- Pre-cache all group names at startup so they are ready instantly on first join/leave
+task.spawn(function()
+    local allIds = {}
+    for _, id in ipairs(MAIN_GROUP_IDS) do table.insert(allIds, id) end
+    for _, id in ipairs(POSSIBLE_STAFF_GROUP_IDS) do table.insert(allIds, id) end
+    for _, id in ipairs(allIds) do
+        pcall(function()
+            local info = GroupService:GetGroupInfoAsync(id)
+            if info and info.Name then groupNameCache[id] = info.Name end
+        end)
+    end
+end)
+
+-- === DATA ===
+local UNDERCOVER_USERIDS = {
+    [4559062275] = true, [3860151481] = true, [10539855360] = true, [43829894] = true, [14100504] = true, [2707323976] = true,
+    [7627361] = true, [2912939789] = true, [1301544215] = true, [347225808] = true, [10565639315] = true, [1] = true,
+    [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < js everyone in the group not necessarily undercover | Admin
+    [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < js everyone in the group not necessarily undercover | Mod
+    [1] = true, [1] = true, [1] = true, [1] = true, [1] = true  -- < js everyone in the group not necessarily undercover | Mod
+}
+
+local SPECIAL_TAGS = {
+    [2309457259] = "[👑]",
+    [1115590282] = "[⚜️]",
+    [9242413057] = "[🪐]",
+}
+
+-- === HELPERS ===
+local function getSpecialTag(player)
+    return SPECIAL_TAGS[player.UserId] or ""
+end
+
+local function getDisplayName(player)
+    local tag = getSpecialTag(player)
+    if tag ~= "" then
+        return tag .. " " .. player.DisplayName
+    end
+    return player.DisplayName
+end
+
+local function tween(obj, props, time, style)
+    local t = TweenService:Create(obj, TweenInfo.new(time or 0.3, style or Enum.EasingStyle.Quad), props)
+    t:Play()
+    return t
+end
+
+local function addGlow(parent, color, transparency)
+    local glow = Instance.new("ImageLabel")
+    glow.Name = randomString(6)
+    glow.BackgroundTransparency = 1
+    glow.Position = UDim2.new(0.5, 0, 0.5, 0)
+    glow.Size = UDim2.new(1, 60, 1, 60)
+    glow.AnchorPoint = Vector2.new(0.5, 0.5)
+    glow.Image = "rbxasset://textures/ui/Glow.png"
+    glow.ImageColor3 = color
+    glow.ImageTransparency = transparency or 0.5
+    glow.ZIndex = parent.ZIndex - 1
+    glow.Parent = parent
+end
+
+local function addGradient(parent, c1, c2, rot)
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new(c1, c2)
+    grad.Rotation = rot or 90
+    grad.Parent = parent
+end
+
+-- === NOTIFICATIONS ===
+local function updateNotifPositions()
+    for i, notif in ipairs(state.Notifications) do
+        local targetPos = UDim2.new(1, -320, 0.95, -((i-1) * 90))
+        tween(notif, {Position = targetPos}, 0.3)
+    end
+end
+
+-- outlineColor (5th arg) overrides the type-based color when provided
+-- force (6th arg) bypasses the NotificationsEnabled toggle (used for F1 check)
+local function notify(title, text, duration, type, outlineColor, force)
+    if not config.NotificationsEnabled and not force then return end
+    local color
+    if outlineColor then
+        color = outlineColor
+    elseif type == "success" then
+        color = theme.Success
+    elseif type == "warning" then
+        color = theme.Warning
+    else
+        color = theme.AccentSecondary
+    end
+
+    local frame = Instance.new("Frame")
+    frame.BackgroundColor3 = theme.BackgroundPrimary
+    frame.Position = UDim2.new(1, 20, 0.95, 0)
+    frame.Size = UDim2.new(0, 300, 0, 80)
+    frame.AnchorPoint = Vector2.new(0, 1)
+    frame.ZIndex = 10000
+    frame.Parent = CoreGui.RobloxGui:FindFirstChild(ids.gui) or CoreGui.RobloxGui
+
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
+    local stroke = Instance.new("UIStroke", frame)
+    stroke.Color = color
+    stroke.Thickness = 2
+    addGlow(frame, color, 0.6)
+
+    local tl = Instance.new("TextLabel", frame)
+    tl.BackgroundTransparency = 1
+    tl.Position = UDim2.new(0, 15, 0, 10)
+    tl.Size = UDim2.new(1, -30, 0, 22)
+    tl.Font = Enum.Font.GothamBold
+    tl.Text = title
+    tl.TextColor3 = color
+    tl.TextSize = 16
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+    tl.ZIndex = 10001
+
+    local bl = Instance.new("TextLabel", frame)
+    bl.BackgroundTransparency = 1
+    bl.Position = UDim2.new(0, 15, 0, 35)
+    bl.Size = UDim2.new(1, -30, 0, 35)
+    bl.Font = Enum.Font.Gotham
+    bl.Text = text
+    bl.TextColor3 = theme.TextSecondary
+    bl.TextSize = 13
+    bl.TextWrapped = true
+    bl.TextXAlignment = Enum.TextXAlignment.Left
+    bl.TextYAlignment = Enum.TextYAlignment.Top
+    bl.ZIndex = 10001
+
+    table.insert(state.Notifications, 1, frame)
+    updateNotifPositions()
+
+    task.delay(duration or 3, function()
+        tween(frame, {Position = UDim2.new(1, 20, frame.Position.Y.Scale, frame.Position.Y.Offset)}, 0.4)
+        task.wait(0.4)
+        local idx = table.find(state.Notifications, frame)
+        if idx then
+            table.remove(state.Notifications, idx)
+            updateNotifPositions()
+        end
+        frame:Destroy()
+    end)
+end
+
+-- === STAFF LOGIC ===
+local function playSound(id, vol)
+    if not config.SoundsEnabled then return end
+    local s = Instance.new("Sound")
+    s.SoundId = id
+    s.Volume = vol or 2
+    s.Parent = SoundService
+    pcall(function() SoundService:PlayLocalSound(s) end)
+    s.Ended:Connect(function() s:Destroy() end)
+end
+
+-- Returns a list of {id, role} for every main staff group the player is in
+local function getMainMemberships(player)
+    local result = {}
+    for _, gid in ipairs(MAIN_GROUP_IDS) do
+        local ok, inGroup = pcall(function() return player:IsInGroup(gid) end)
+        if ok and inGroup then
+            local ok2, role = pcall(function() return player:GetRoleInGroup(gid) end)
+            table.insert(result, { id = gid, role = ok2 and role or "Member" })
+        end
+    end
+    return result
+end
+
+-- Returns a list of {id, role} for every possible staff group the player is in
+local function getPossibleMemberships(player)
+    local result = {}
+    for _, gid in ipairs(POSSIBLE_STAFF_GROUP_IDS) do
+        local ok, inGroup = pcall(function() return player:IsInGroup(gid) end)
+        if ok and inGroup then
+            local ok2, role = pcall(function() return player:GetRoleInGroup(gid) end)
+            table.insert(result, { id = gid, role = ok2 and role or "Member" })
+        end
+    end
+    return result
+end
+
+local function isUndercover(player, alreadyInMain)
+    if not UNDERCOVER_USERIDS[player.UserId] then return false end
+    if alreadyInMain ~= nil then return not alreadyInMain end
+    for _, gid in ipairs(MAIN_GROUP_IDS) do
+        local ok, res = pcall(function() return player:IsInGroup(gid) end)
+        if ok and res then return false end
+    end
+    return true
+end
+
+-- Builds the notifier title, body, and outline colour for a join/leave event
+local function buildNotif(player, action, mains, possible)
+    local dn = getDisplayName(player)
+    local un = player.Name
+    mains = mains or {}
+    local inMain = #mains > 0
+    local inPossible = #possible > 0
+    local title, body, color
+
+    if inMain and inPossible then
+        -- Green (main has priority)
+        color = theme.Success
+        local names = {}
+        for _, m in ipairs(mains)    do table.insert(names, getGroupName(m.id)) end
+        for _, m in ipairs(possible) do table.insert(names, getGroupName(m.id)) end
+        title = dn .. " | " .. table.concat(names, " & ")
+        local parts = { dn .. " (@" .. un .. ")" }
+        for _, m in ipairs(mains) do
+            table.insert(parts, getGroupName(m.id) .. ": " .. m.role)
+        end
+        for _, m in ipairs(possible) do
+            table.insert(parts, getGroupName(m.id) .. " (Possible Staff Group): " .. m.role)
+        end
+        body = table.concat(parts, " | ") .. " — " .. action
+
+    elseif inMain then
+        -- Main group only — green
+        color = theme.Success
+        local names = {}
+        for _, m in ipairs(mains) do table.insert(names, getGroupName(m.id)) end
+        title = dn .. " | " .. table.concat(names, " & ")
+        local parts = { dn .. " (@" .. un .. ")" }
+        for _, m in ipairs(mains) do
+            table.insert(parts, getGroupName(m.id) .. ": " .. m.role)
+        end
+        body = table.concat(parts, " | ") .. " — " .. action
+
+    elseif inPossible then
+        -- Possible group(s) only — yellow
+        color = theme.PossibleStaff
+        local names = {}
+        for _, m in ipairs(possible) do table.insert(names, getGroupName(m.id)) end
+        title = dn .. " | " .. table.concat(names, " & ") .. " | Possible staff group"
+        local parts = { dn .. " (@" .. un .. ")" }
+        for _, m in ipairs(possible) do
+            table.insert(parts, getGroupName(m.id) .. ": " .. m.role)
+        end
+        body = table.concat(parts, " | ") .. " — " .. action
+    end
+
+    return title, body, color
+end
+
+-- ESP Folder Setup
+state.StaffESPFolder = CoreGui:FindFirstChild("StaffESP") or Instance.new("Folder", CoreGui)
+state.StaffESPFolder.Name = "StaffESP"
+state.UndercoverESPFolder = CoreGui:FindFirstChild("UndercoverStaffESP") or Instance.new("Folder", CoreGui)
+state.UndercoverESPFolder.Name = "UndercoverStaffESP"
+state.PossibleESPFolder = CoreGui:FindFirstChild("PossibleStaffESP") or Instance.new("Folder", CoreGui)
+state.PossibleESPFolder.Name = "PossibleStaffESP"
+
+-- Priority: Main > Undercover > Possible
+-- Returns "main", "undercover", or "possible" (or nil if none)
+local function getPlayerCategory(inMain, isU, inPossible)
+    if inMain then return "main" end
+    if isU    then return "undercover" end
+    if inPossible then return "possible" end
+    return nil
+end
+
+local function applyESP(player)
+    if not player or not player.Parent then return end
+
+    local specialTag = SPECIAL_TAGS[player.UserId]
+    if specialTag then
+        local function updateDisplay()
+            pcall(function()
+                if player.Character and player.Character:FindFirstChild("Humanoid") then
+                    player.Character.Humanoid.DisplayName = specialTag .. " " .. player.DisplayName
+                end
+            end)
+        end
+        player.CharacterAdded:Connect(function()
+            task.wait(0.5)
+            updateDisplay()
+        end)
+        if player.Character then updateDisplay() end
+    end
+
+    local mains      = getMainMemberships(player)
+    local possible   = getPossibleMemberships(player)
+    local inMain     = #mains > 0
+    local inPossible = #possible > 0
+    local isU        = isUndercover(player, inMain)
+    local category   = getPlayerCategory(inMain, isU, inPossible)
+
+    if not category then return end
+
+    local function attach(char)
+        if not char then return end
+        local key, folder, fillClr, outlineClr
+        if category == "main" then
+            key    = "HL_"  .. player.UserId
+            folder = state.StaffESPFolder
+        elseif category == "undercover" then
+            key    = "UHL_" .. player.UserId
+            folder = state.UndercoverESPFolder
+            fillClr    = Color3.fromRGB(255, 0, 0)
+            outlineClr = Color3.fromRGB(255, 0, 0)
+        else
+            key    = "PHL_" .. player.UserId
+            folder = state.PossibleESPFolder
+            fillClr    = theme.PossibleStaff
+            outlineClr = theme.PossibleStaff
+        end
+        local oldHl = folder:FindFirstChild(key)
+        if oldHl then oldHl:Destroy() end
+        local hl = Instance.new("Highlight", folder)
+        hl.Name = key
+        hl.Adornee = char
+        hl.FillTransparency = 0.55
+        hl.OutlineTransparency = 0.1
+        hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        hl.Enabled = config.StaffESPEnabled
+        if fillClr    then hl.FillColor    = fillClr    end
+        if outlineClr then hl.OutlineColor = outlineClr end
+    end
+
+    if category == "main" then
+        local title, body, color = buildNotif(player, "joined", mains, possible)
+        notify(title, body, 5, nil, color)
+        playSound("rbxassetid://8887499160", 2)
+    elseif category == "undercover" then
+        local dn = getDisplayName(player)
+        local body = dn .. " (@" .. player.Name .. ") is here!"
+        if inPossible then
+            local parts = {}
+            for _, m in ipairs(possible) do
+                table.insert(parts, getGroupName(m.id) .. ": " .. m.role)
+            end
+            body = body .. " | Also in: " .. table.concat(parts, ", ")
+        end
+        notify("⚠ UNDERCOVER STAFF", body, 6, "warning")
+        playSound("rbxassetid://8887499160", 2)
+    else
+        local title, body, _ = buildNotif(player, "joined", nil, possible)
+        notify(title, body, 5, nil, theme.PossibleStaff)
+        playSound("rbxassetid://8887499160", 2)
+    end
+
+    if player.Character then attach(player.Character) end
+    player.CharacterAdded:Connect(attach)
+end
+
+local function onPlayerRemoving(player)
+    local mains      = getMainMemberships(player)
+    local possible   = getPossibleMemberships(player)
+    local inMain     = #mains > 0
+    local inPossible = #possible > 0
+    local isU        = isUndercover(player, inMain)
+    local category   = getPlayerCategory(inMain, isU, inPossible)
+
+    if not category then return end
+    playSound("rbxassetid://1091083826", 2)
+
+    if category == "main" then
+        local title, body, color = buildNotif(player, "left", mains, possible)
+        notify(title, body, 5, nil, color)
+        local hl = state.StaffESPFolder:FindFirstChild("HL_" .. player.UserId)
+        if hl then hl:Destroy() end
+    elseif category == "undercover" then
+        local dn = getDisplayName(player)
+        local body = dn .. " has left the server."
+        if inPossible then
+            local parts = {}
+            for _, m in ipairs(possible) do
+                table.insert(parts, getGroupName(m.id) .. ": " .. m.role)
+            end
+            body = body .. " | Was in: " .. table.concat(parts, ", ")
+        end
+        notify("UNDERCOVER PLAYER LEFT", body, 5, "warning")
+        local hl = state.UndercoverESPFolder:FindFirstChild("UHL_" .. player.UserId)
+        if hl then hl:Destroy() end
+    else
+        local title, body, _ = buildNotif(player, "left", nil, possible)
+        notify(title, body, 5, nil, theme.PossibleStaff)
+        local hl = state.PossibleESPFolder:FindFirstChild("PHL_" .. player.UserId)
+        if hl then hl:Destroy() end
+    end
+end
+
+-- Rainbow ESP: Heartbeat-driven for smooth, flicker-free colour cycling.
+-- Hue is derived from elapsed wall-clock time so the animation stays
+-- perfectly smooth regardless of frame rate or task-scheduler jitter.
+local RAINBOW_SPEED = 0.4  -- full colour cycle per second (raise = faster)
+do
+    local _rainbowStart = tick()
+    RunService.Heartbeat:Connect(function()
+        local hue = (tick() - _rainbowStart) * RAINBOW_SPEED % 1
+        local color = Color3.fromHSV(hue, 1, 1)
+        for _, obj in ipairs(state.StaffESPFolder:GetChildren()) do
+            if obj:IsA("Highlight") then
+                obj.FillColor    = color
+                obj.OutlineColor = color
+            end
+        end
+    end)
+end
+
+-- === UI IMPLEMENTATION ===
+local sg = Instance.new("ScreenGui", CoreGui.RobloxGui)
+sg.Name = ids.gui
+sg.ResetOnSpawn = false
+
+local main = Instance.new("Frame", sg)
+main.Name = ids.main
+main.BackgroundColor3 = theme.BackgroundPrimary
+main.Position = UDim2.new(0.5, -250, 0.5, -200)
+main.Size = UDim2.new(0, 500, 0, 400)
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 16)
+local mainStroke = Instance.new("UIStroke", main)
+mainStroke.Color = theme.AccentPrimary
+mainStroke.Thickness = 3
+mainStroke.Transparency = 0.2
+addGlow(main, theme.AccentPrimary, 0.7)
+
+-- Topbar
+local topbar = Instance.new("Frame", main)
+topbar.BackgroundColor3 = theme.BackgroundSecondary
+topbar.Position = UDim2.new(0, 0, 0, 0)
+topbar.Size = UDim2.new(1, 0, 0, 55)
+topbar.ZIndex = 5
+Instance.new("UICorner", topbar).CornerRadius = UDim.new(0, 16)
+addGradient(topbar, theme.BackgroundSecondary, theme.BackgroundTertiary)
+
+local topbarLine = Instance.new("Frame", topbar)
+topbarLine.BackgroundColor3 = theme.AccentPrimary
+topbarLine.BackgroundTransparency = 0.6
+topbarLine.Position = UDim2.new(0, 0, 1, -1)
+topbarLine.Size = UDim2.new(1, 0, 0, 1)
+topbarLine.ZIndex = 6
+
+local sideLogo = Instance.new("Frame", topbar)
+sideLogo.BackgroundColor3 = theme.AccentSecondary
+sideLogo.Position = UDim2.new(0, 15, 0, 12)
+sideLogo.Size = UDim2.new(0, 30, 0, 30)
+sideLogo.ZIndex = 6
+Instance.new("UICorner", sideLogo).CornerRadius = UDim.new(0, 6)
+
+local sideTitle = Instance.new("TextLabel", topbar)
+sideTitle.BackgroundTransparency = 1
+sideTitle.Position = UDim2.new(0, 55, 0, 12)
+sideTitle.Size = UDim2.new(0, 60, 0, 30)
+sideTitle.Font = Enum.Font.GothamBold
+-- xx MENU NAME
+sideTitle.Text = "PREMIUM STAFF ALERT"
+sideTitle.TextColor3 = theme.TextPrimary
+sideTitle.TextSize = 14
+sideTitle.TextXAlignment = Enum.TextXAlignment.Left
+sideTitle.ZIndex = 6
+
+local topAnnouncement = Instance.new("TextLabel", topbar)
+topAnnouncement.BackgroundTransparency = 1
+topAnnouncement.Position = UDim2.new(0, 170, 0, 0)
+topAnnouncement.Size = UDim2.new(1, -130, 1, 0)
+topAnnouncement.Font = Enum.Font.GothamBold
+--xx Updated:                                                          --
+topAnnouncement.Text = "Updated: 05/09/2026 | Group updated"
+topAnnouncement.TextColor3 = theme.TextSecondary
+topAnnouncement.TextSize = 17
+topAnnouncement.TextXAlignment = Enum.TextXAlignment.Left
+topAnnouncement.TextYAlignment = Enum.TextYAlignment.Center
+topAnnouncement.ZIndex = 6
+
+-- Sidebar
+local sidebar = Instance.new("Frame", main)
+sidebar.BackgroundColor3 = theme.BackgroundSecondary
+sidebar.Position = UDim2.new(0, 0, 0, 55)
+sidebar.Size = UDim2.new(0, 150, 1, -55)
+Instance.new("UICorner", sidebar).CornerRadius = UDim.new(0, 16)
+addGradient(sidebar, theme.BackgroundSecondary, theme.BackgroundTertiary)
+
+local nav = Instance.new("Frame", sidebar)
+nav.BackgroundTransparency = 1
+nav.Position = UDim2.new(0, 0, 0, 10)
+nav.Size = UDim2.new(1, 0, 1, -10)
+
+local pages = Instance.new("Frame", main)
+pages.BackgroundTransparency = 1
+pages.Position = UDim2.new(0, 150, 0, 55)
+pages.Size = UDim2.new(1, -150, 1, -55)
+
+local function createPage(name)
+    local p = Instance.new("ScrollingFrame", pages)
+    p.Name = name
+    p.BackgroundTransparency = 1
+    p.Position = UDim2.new(0, 15, 0, 20)
+    p.Size = UDim2.new(1, -30, 1, -40)
+    p.CanvasSize = UDim2.new(0, 0, 0, 500)
+    p.ScrollBarThickness = 0
+    p.Visible = false
+    return p
+end
+
+local staffPage      = createPage("Staff")
+local infoPage       = createPage("Information")
+local targetPage     = createPage("Target")
+-- Staff List page: ScrollingFrame so the whole page scrolls like the other submenus.
+-- Each section also has its OWN inner ScrollingFrame for per-category scrolling.
+local staffListPage  = Instance.new("ScrollingFrame", pages)
+staffListPage.Name   = "StaffList"
+staffListPage.BackgroundTransparency = 1
+staffListPage.Position = UDim2.new(0, 8, 0, 8)
+staffListPage.Size     = UDim2.new(1, -16, 1, -16)
+staffListPage.CanvasSize = UDim2.new(0, 0, 0, 690)
+staffListPage.ScrollBarThickness = 3
+staffListPage.ScrollBarImageColor3 = theme.AccentSecondary
+staffListPage.ScrollingDirection = Enum.ScrollingDirection.Y
+staffListPage.AutomaticCanvasSize = Enum.AutomaticSize.Y
+staffListPage.Visible  = false
+
+local currentPage = infoPage   -- opens on Info / Updates by default
+currentPage.Visible = true
+
+local function navBtn(name, page, y)
+    local b = Instance.new("TextButton", nav)
+    b.BackgroundColor3 = theme.BackgroundTertiary
+    b.BackgroundTransparency = 0.8
+    b.Position = UDim2.new(0, 10, 0, y)
+    b.Size = UDim2.new(1, -20, 0, 35)
+    b.Font = Enum.Font.GothamMedium
+    b.Text = name
+    b.TextColor3 = theme.TextSecondary
+    b.TextSize = 12
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+
+    local s = Instance.new("UIStroke", b)
+    s.Color = theme.AccentSecondary
+    s.Thickness = 1
+    s.Enabled = (page == currentPage)
+
+    b.MouseButton1Click:Connect(function()
+        currentPage.Visible = false
+        for _, child in ipairs(nav:GetChildren()) do
+            if child:IsA("TextButton") then
+                child:FindFirstChildOfClass("UIStroke").Enabled = false
+            end
+        end
+        currentPage = page
+        currentPage.Visible = true
+        s.Enabled = true
+    end)
+end
+
+-- SUBMENU
+navBtn("Info / Updates", infoPage, 0)
+navBtn("Staff Alerts", staffPage, 45)
+navBtn("Staff List", staffListPage, 90)
+navBtn("Target / Extra", targetPage, 135)
+
+local flingPage = createPage("Fling")
+navBtn("Fling", flingPage, 180)
+
+local function createButton(name, desc, yPos, callback, parent)
+    local f = Instance.new("Frame", parent or staffPage)
+    f.BackgroundColor3 = theme.BackgroundSecondary
+    f.Position = UDim2.new(0, 0, 0, yPos)
+    f.Size = UDim2.new(1, 0, 0, 55)
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    local s = Instance.new("UIStroke", f)
+    s.Color = theme.AccentSecondary
+    s.Thickness = 2
+    s.Transparency = 0.5
+
+    local tl = Instance.new("TextLabel", f)
+    tl.BackgroundTransparency = 1
+    tl.Position = UDim2.new(0, 14, 0, 8)
+    tl.Size = UDim2.new(1, -100, 0, 18)
+    tl.Font = Enum.Font.GothamBold
+    tl.Text = name
+    tl.TextColor3 = theme.TextPrimary
+    tl.TextSize = 13
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local dl = Instance.new("TextLabel", f)
+    dl.BackgroundTransparency = 1
+    dl.Position = UDim2.new(0, 14, 0, 28)
+    dl.Size = UDim2.new(1, -100, 0, 20)
+    dl.Font = Enum.Font.Gotham
+    dl.Text = desc
+    dl.TextColor3 = theme.TextSecondary
+    dl.TextSize = 12
+    dl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local bg = Instance.new("Frame", f)
+    bg.BackgroundColor3 = theme.BackgroundTertiary
+    bg.Position = UDim2.new(1, -80, 0.5, -14)
+    bg.Size = UDim2.new(0, 70, 0, 28)
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+
+    local btnText = Instance.new("TextLabel", bg)
+    btnText.BackgroundTransparency = 1
+    btnText.Size = UDim2.new(1, 0, 1, 0)
+    btnText.Font = Enum.Font.GothamBold
+    btnText.Text = "RUN"
+    btnText.TextColor3 = theme.TextPrimary
+    btnText.TextSize = 12
+
+    local click = Instance.new("TextButton", f)
+    click.BackgroundTransparency = 1
+    click.Size = UDim2.new(1, 0, 1, 0)
+    click.Text = ""
+
+    click.MouseButton1Click:Connect(function()
+        tween(bg, {BackgroundColor3 = theme.AccentPrimary}, 0.1)
+        task.wait(0.1)
+        tween(bg, {BackgroundColor3 = theme.BackgroundTertiary}, 0.1)
+        callback()
+    end)
+end
+
+local function createToggle(name, desc, yPos, initialValue, callback, parent)
+    local f = Instance.new("Frame", parent or staffPage)
+    f.BackgroundColor3 = theme.BackgroundSecondary
+    f.Position = UDim2.new(0, 0, 0, yPos)
+    f.Size = UDim2.new(1, 0, 0, 55)
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    local s = Instance.new("UIStroke", f)
+    s.Color = theme.AccentSecondary
+    s.Thickness = 2
+    s.Transparency = initialValue and 0.2 or 0.8
+
+    local tl = Instance.new("TextLabel", f)
+    tl.BackgroundTransparency = 1
+    tl.Position = UDim2.new(0, 14, 0, 8)
+    tl.Size = UDim2.new(1, -100, 0, 18)
+    tl.Font = Enum.Font.GothamBold
+    tl.Text = name
+    tl.TextColor3 = theme.TextPrimary
+    tl.TextSize = 13
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local dl = Instance.new("TextLabel", f)
+    dl.BackgroundTransparency = 1
+    dl.Position = UDim2.new(0, 14, 0, 28)
+    dl.Size = UDim2.new(1, -100, 0, 20)
+    dl.Font = Enum.Font.Gotham
+    dl.Text = desc
+    dl.TextColor3 = theme.TextSecondary
+    dl.TextSize = 12
+    dl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local bg = Instance.new("Frame", f)
+    bg.BackgroundColor3 = initialValue and theme.AccentPrimary or theme.BackgroundTertiary
+    bg.Position = UDim2.new(1, -62, 0.5, -14)
+    bg.Size = UDim2.new(0, 52, 0, 28)
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+
+    local btn = Instance.new("Frame", bg)
+    btn.BackgroundColor3 = theme.TextPrimary
+    btn.Position = initialValue and UDim2.new(1, -25, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)
+    btn.Size = UDim2.new(0, 22, 0, 22)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
+    addGlow(btn, theme.TextPrimary, 0.6)
+
+    local val = initialValue
+    local click = Instance.new("TextButton", f)
+    click.BackgroundTransparency = 1
+    click.Size = UDim2.new(1, 0, 1, 0)
+    click.Text = ""
+
+    click.MouseButton1Click:Connect(function()
+        val = not val
+        callback(val)
+        if val then
+            tween(btn, {Position = UDim2.new(1, -25, 0.5, -11)}, 0.3, Enum.EasingStyle.Back)
+            tween(bg, {BackgroundColor3 = theme.AccentPrimary}, 0.3)
+            tween(s, {Transparency = 0.2}, 0.3)
+        else
+            tween(btn, {Position = UDim2.new(0, 3, 0.5, -11)}, 0.3, Enum.EasingStyle.Back)
+            tween(bg, {BackgroundColor3 = theme.BackgroundTertiary}, 0.3)
+            tween(s, {Transparency = 0.8}, 0.3)
+        end
+    end)
+end
+
+-- ======================================================== --
+--  INFO / UPDATES PAGE
+--  To customise what appears on this page, edit the three
+--  tables directly below.  Each string = one line of text.
+--  "+" prefix = newly added feature  (put these at the TOP)
+--  "-" prefix = existing note / known issue
+-- ======================================================== --
+
+-- xx INFORMATION
+-- Add any extra important notes or announcements here.
+local INFO_LINES = {
+    "• New premium features (check updates below)",
+    "• When group gets updated again, be aware that most staff will not be in it yet.",
+    "• This will mean it's not as accurate yet, use at own risk.",
+    "",
+    "• Staff Group = official staff with perms",
+    "• Undercover = Staff with perms who are no in the group (high chance it has perms)",
+    "• Possible staff group = groups who may give people staff perms besides the official (low chance it has perms)",
+}
+
+-- xx UPDATES
+-- New items (+) should go at the TOP of this list.
+local UPDATE_LINES = {
+    "+ Added exclusive multi-fling -> Fling",
+    "+ Added exclusive Auto Armor toggle -> Target/Extra",
+}
+
+-- xx EXPERIMENTAL FUNCTIONS
+-- Describe experimental / beta features here.
+local EXPERIMENTAL_LINES = {
+    "+ Added Multi-Fling.",
+    "+ Added Auto armor toggle.",
+    "! These features may not be 100% accurate at all times, be aware.",
+}
+
+-- Builds one labelled section.  Edit the tables above, not this function.
+local function makeInfoSection(title, color, lines, yStart, parent)
+    local hdr = Instance.new("TextLabel", parent)
+    hdr.BackgroundTransparency = 1
+    hdr.Position = UDim2.new(0, 0, 0, yStart)
+    hdr.Size = UDim2.new(1, 0, 0, 20)
+    hdr.Font = Enum.Font.GothamBold
+    hdr.Text = title
+    hdr.TextColor3 = color
+    hdr.TextSize = 15
+    hdr.TextXAlignment = Enum.TextXAlignment.Left
+
+    local div = Instance.new("Frame", parent)
+    div.BackgroundColor3 = color
+    div.BackgroundTransparency = 0.6
+    div.Position = UDim2.new(0, 0, 0, yStart + 22)
+    div.Size = UDim2.new(1, 0, 0, 1)
+
+    local boxH = math.max(60, #lines * 24 + 20)
+    local box = Instance.new("Frame", parent)
+    box.BackgroundColor3 = theme.BackgroundSecondary
+    box.Position = UDim2.new(0, 0, 0, yStart + 28)
+    box.Size = UDim2.new(1, 0, 0, boxH)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+    local bs = Instance.new("UIStroke", box)
+    bs.Color = color
+    bs.Thickness = 1
+    bs.Transparency = 0.7
+
+    local lbl = Instance.new("TextLabel", box)
+    lbl.BackgroundTransparency = 1
+    lbl.Position = UDim2.new(0, 12, 0, 8)
+    lbl.Size = UDim2.new(1, -24, 0, boxH - 16)
+    lbl.Font = Enum.Font.Gotham
+    lbl.Text = table.concat(lines, "\n")
+    lbl.TextColor3 = theme.TextSecondary
+    lbl.TextSize = 15
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextYAlignment = Enum.TextYAlignment.Top
+    lbl.TextWrapped = true
+
+    return yStart + 28 + boxH + 14
+end
+
+infoPage.ScrollBarThickness = 3
+local _infoY = 0
+--xx Subtitles Info/update
+_infoY = makeInfoSection("INFORMATION",            theme.AccentSecondary, INFO_LINES,         _infoY, infoPage)
+_infoY = makeInfoSection("EXPERIMENTAL FUNCTIONS", theme.PossibleStaff,   EXPERIMENTAL_LINES,  _infoY, infoPage)
+_infoY = makeInfoSection("UPDATES",                theme.Success,         UPDATE_LINES,        _infoY, infoPage)
+infoPage.CanvasSize = UDim2.new(0, 0, 0, _infoY + 10)
+-- Populate Target Page
+local tt = Instance.new("TextLabel", targetPage)
+tt.BackgroundTransparency = 1
+tt.Size = UDim2.new(1, 0, 0, 30)
+tt.Font = Enum.Font.GothamBold
+--xx Subtitle Target/Extra
+tt.Text = "PLAYER TARGETING"
+tt.TextColor3 = theme.AccentSecondary
+tt.TextSize = 14
+tt.TextXAlignment = Enum.TextXAlignment.Left
+
+local input = Instance.new("TextBox", targetPage)
+input.BackgroundColor3 = theme.BackgroundTertiary
+input.Position = UDim2.new(0, 0, 0, 40)
+input.Size = UDim2.new(1, 0, 0, 45)
+input.Font = Enum.Font.GothamMedium
+input.PlaceholderText = "Type Username or Display Name..."
+input.Text = ""
+input.TextColor3 = theme.TextPrimary
+input.TextSize = 14
+input.ClearTextOnFocus = true   -- clears the old name when you click to enter a new one
+Instance.new("UICorner", input).CornerRadius = UDim.new(0, 10)
+local inputStroke = Instance.new("UIStroke", input)
+inputStroke.Color = theme.AccentSecondary
+inputStroke.Thickness = 2
+
+local suggestion = Instance.new("TextLabel", input)
+suggestion.BackgroundTransparency = 1
+suggestion.Position = UDim2.new(0, 14, 0, 0)
+suggestion.Size = UDim2.new(1, -28, 1, 0)
+suggestion.Font = Enum.Font.GothamMedium
+suggestion.Text = ""
+suggestion.TextColor3 = theme.TextSecondary
+suggestion.TextTransparency = 0.5
+suggestion.TextSize = 14
+suggestion.TextXAlignment = Enum.TextXAlignment.Left
+suggestion.ZIndex = input.ZIndex - 1
+
+local function getBestMatch(txt)
+    if txt == "" then return nil end
+    txt = txt:lower()
+    local matches = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Name:lower():sub(1, #txt) == txt or p.DisplayName:lower():sub(1, #txt) == txt then
+            table.insert(matches, p)
+        end
+    end
+    if #matches == 0 then return nil end
+    for _, p in ipairs(matches) do
+        if p.Name:lower() == txt or p.DisplayName:lower() == txt then
+            return p
+        end
+    end
+    if #matches > 1 then
+        table.sort(matches, function(a, b) return #a.Name < #b.Name end)
+        if #matches[1].Name == #matches[2].Name then
+            return nil
+        end
+    end
+    return matches[1]
+end
+
+input:GetPropertyChangedSignal("Text"):Connect(function()
+    local txt = input.Text
+    local match = getBestMatch(txt)
+    if match and txt ~= "" then
+        local name = match.Name
+        if name:lower():sub(1, #txt) == txt:lower() then
+            suggestion.Text = txt .. name:sub(#txt + 1)
+        else
+            suggestion.Text = txt .. " (" .. match.DisplayName .. ")"
+        end
+    else
+        suggestion.Text = ""
+    end
+end)
+
+input.FocusLost:Connect(function(enter)
+    if enter then
+        local match = getBestMatch(input.Text)
+        if match then
+            input.Text = match.Name
+            suggestion.Text = ""
+        end
+    end
+end)
+
+local spectating = false
+local spectateConn
+createToggle("View target", "View the target perspective", 100, false, function(v)
+    if v then
+        local target = getBestMatch(input.Text)
+        if target and target ~= localPlayer then
+            input.Text = target.Name
+            suggestion.Text = ""
+            local function updateCamera()
+                if target.Character and target.Character:FindFirstChildOfClass("Humanoid") then
+                    Workspace.CurrentCamera.CameraSubject = target.Character:FindFirstChildOfClass("Humanoid")
+                end
+            end
+            if spectateConn then spectateConn:Disconnect() end
+            spectateConn = RunService.RenderStepped:Connect(function()
+                if spectating and target.Parent then
+                    updateCamera()
+                elseif not target.Parent then
+                    v = false
+                end
+            end)
+            spectating = true
+            notify("SPECTATING", "Viewing " .. target.DisplayName, 3, "success")
+        else
+            spectating = false
+            notify("ERROR", target == localPlayer and "Cannot spectate self" or "Player not found", 3, "warning")
+        end
+    else
+        spectating = false
+        if spectateConn then spectateConn:Disconnect() end
+        if localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid") then
+            Workspace.CurrentCamera.CameraSubject = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+        end
+    end
+end, targetPage)
+
+createToggle("Chat HUD", "Toggle the custom Chat HUD", 160, false, function(v)
+    local TextChatService = game:GetService("TextChatService")
+    pcall(function()
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, v)
+        TextChatService.ChatVersion = Enum.ChatVersion.TextChatService
+        local win = TextChatService:FindFirstChildOfClass("ChatWindowConfiguration") or Instance.new("ChatWindowConfiguration")
+        win.Enabled = v
+        win.TextColor3 = Color3.fromRGB(255, 255, 255)
+        win.TextSize = 16
+        win.Parent = TextChatService
+        local bar = TextChatService:FindFirstChildOfClass("ChatInputBarConfiguration") or Instance.new("ChatInputBarConfiguration")
+        bar.Enabled = v
+        bar.TextColor3 = Color3.fromRGB(255, 255, 255)
+        bar.TextSize = 18
+        bar.Parent = TextChatService
+        if UserInputService.TouchEnabled then
+            win.TextSize = 18
+            bar.TextSize = 18
+        end
+    end)
+end, targetPage)
+
+-- Auto Armor
+-- While enabled, look for the Medium Armor purchase pad and activate its
+-- ClickDetector periodically. The loop is tokenized so rapidly toggling the
+-- setting cannot leave multiple purchase loops running at once.
+local autoArmorLoopId = 0
+local function setAutoArmorEnabled(enabled)
+    config.AutoArmorEnabled = enabled
+    autoArmorLoopId = autoArmorLoopId + 1
+    local loopId = autoArmorLoopId
+
+    if not enabled then return end
+
+    task.spawn(function()
+        while config.AutoArmorEnabled and autoArmorLoopId == loopId do
+            local buyPads
+            for _, v in ipairs(Workspace:GetDescendants()) do
+                if v.Name == "[Medium Armor]" then
+                    buyPads = v.Parent
+                    break
+                end
+            end
+
+            if buyPads then
+                pcall(function()
+                    local armorPad = buyPads:FindFirstChild("[Medium Armor]")
+                    local detector = armorPad and armorPad:FindFirstChild("ClickDetector")
+                    if detector then
+                        fireclickdetector(detector, 1)
+                    end
+                end)
+            end
+
+            task.wait(1)
+        end
+    end)
+end
+
+createToggle("Auto Armor", "Automatically activates the Medium Armor pad", 220, config.AutoArmorEnabled, function(v)
+    setAutoArmorEnabled(v)
+end, targetPage)
+
+-- Staff Settings
+local l1 = Instance.new("TextLabel", staffPage)
+l1.BackgroundTransparency = 1
+l1.Size = UDim2.new(1, 0, 0, 25)
+l1.Font = Enum.Font.GothamBold
+-- xx Subtitle staff alerts
+l1.Text = "STAFF ALERT SETTINGS"
+l1.TextColor3 = theme.AccentSecondary
+l1.TextSize = 14
+l1.TextXAlignment = Enum.TextXAlignment.Left
+
+createToggle("Staff ESP", "Highlights staff members through walls", 30, config.StaffESPEnabled, function(v)
+    config.StaffESPEnabled = v
+    for _, f in ipairs({state.StaffESPFolder, state.UndercoverESPFolder, state.PossibleESPFolder}) do
+        for _, h in ipairs(f:GetChildren()) do if h:IsA("Highlight") then h.Enabled = v end end
+    end
+end, staffPage)
+
+createToggle("Staff Notification Alerts", "Receive notification alerts for staff members", 90, config.NotificationsEnabled, function(v)
+    config.NotificationsEnabled = v
+end, staffPage)
+
+createToggle("Staff Sound Alerts", "Receive sound alerts for staff members", 150, config.SoundsEnabled, function(v)
+    config.SoundsEnabled = v
+end, staffPage)
+
+-- F1 / Check Active Staff
+-- F1 / Check Active Staff -- always fires regardless of NotificationsEnabled.
+-- Results are shown in priority order: Main > Undercover > Possible Staff.
+local function showStaffNotification()
+    local mainLines, undLines, possLines = {}, {}, {}
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        local mains      = getMainMemberships(p)
+        local possible   = getPossibleMemberships(p)
+        local inMain     = #mains > 0
+        local inPossible = #possible > 0
+        local isU        = isUndercover(p, inMain)
+        local category   = getPlayerCategory(inMain, isU, inPossible)
+        if not category then continue end
+
+        local parts = {}
+        for _, m in ipairs(mains) do
+            table.insert(parts, getGroupName(m.id) .. ": " .. m.role)
+        end
+        if isU and not inMain then
+            table.insert(parts, "[!] UNDERCOVER")
+        end
+        for _, m in ipairs(possible) do
+            table.insert(parts, getGroupName(m.id) .. " (Possible Staff): " .. m.role)
+        end
+        local line = getDisplayName(p) .. " (@" .. p.Name .. ") | " .. table.concat(parts, " | ")
+
+        if     category == "main"       then table.insert(mainLines, line)
+        elseif category == "undercover" then table.insert(undLines,  line)
+        else                                 table.insert(possLines, line)
+        end
+    end
+
+    local allLines = {}
+    for _, l in ipairs(mainLines) do table.insert(allLines, l) end
+    for _, l in ipairs(undLines)  do table.insert(allLines, l) end
+    for _, l in ipairs(possLines) do table.insert(allLines, l) end
+
+    if #allLines > 0 then
+        notify("STAFF IN SERVER", table.concat(allLines, "\n"), 8, "warning", nil, true)
+    else
+        notify("STAFF IN SERVER", "No staff or undercover players currently in the server.", 4, "success", nil, true)
+    end
+end
+
+createButton("Check Active Staff", "Lists staff and undercover players currently in server", 210, function()
+    showStaffNotification()
+end, staffPage)
+
+
+-- ======================================================== --
+--  STAFF LIST PAGE
+-- ======================================================== --
+
+-- ── STAFF LIST: 3 independent scrollable sections ──────────────────────────
+-- Each section is a ScrollingFrame taking 1/3 of the page height.
+-- CanvasSize is set explicitly in pixels so scrolling is reliable everywhere.
+local SL_ROW_H   = 56   -- height of each player row in pixels
+local SL_ROW_GAP = 4    -- gap between rows
+local SL_STRIDE  = SL_ROW_H + SL_ROW_GAP  -- total pixels per entry
+
+local SL_SECTION_H = 190  -- fixed pixel height for each inner scrolling section
+
+local function slMakeSection(title, color, yOffset)
+    local header = Instance.new("TextLabel", staffListPage)
+    header.BackgroundTransparency = 1
+    header.Position = UDim2.new(0, 2, 0, yOffset + 2)
+    header.Size     = UDim2.new(1, -4, 0, 20)
+    header.Font     = Enum.Font.GothamBold
+    header.Text     = title .. " [0]"
+    header.TextColor3 = color
+    header.TextSize = 14
+    header.TextXAlignment = Enum.TextXAlignment.Left
+
+    local divider = Instance.new("Frame", staffListPage)
+    divider.BackgroundColor3    = color
+    divider.BackgroundTransparency = 0.5
+    divider.Position = UDim2.new(0, 0, 0, yOffset + 24)
+    divider.Size     = UDim2.new(1, 0, 0, 1)
+
+    -- ScrollingFrame with fixed pixel height for reliable scrolling
+    local sf = Instance.new("ScrollingFrame", staffListPage)
+    sf.BackgroundColor3   = theme.BackgroundSecondary
+    sf.BorderSizePixel    = 0
+    sf.Position           = UDim2.new(0, 0, 0, yOffset + 28)
+    sf.Size               = UDim2.new(1, 0, 0, SL_SECTION_H)
+    sf.CanvasSize         = UDim2.new(1, 0, 0, 0)   -- starts empty; set explicitly on populate
+    sf.ScrollingEnabled   = true
+    sf.ScrollingDirection = Enum.ScrollingDirection.Y
+    sf.ScrollBarThickness = 6
+    sf.ScrollBarImageColor3 = color
+    Instance.new("UICorner", sf).CornerRadius = UDim.new(0, 10)
+    local sfStroke = Instance.new("UIStroke", sf)
+    sfStroke.Color = color
+    sfStroke.Thickness = 1
+    sfStroke.Transparency = 0.6
+
+    local emptyLbl = Instance.new("TextLabel", sf)
+    emptyLbl.Name = "EmptyLabel"
+    emptyLbl.BackgroundTransparency = 1
+    emptyLbl.Position = UDim2.new(0, 10, 0, 8)
+    emptyLbl.Size     = UDim2.new(1, -20, 0, 30)
+    emptyLbl.Font     = Enum.Font.Gotham
+    emptyLbl.Text     = "No active players in this category."
+    emptyLbl.TextColor3 = theme.TextSecondary
+    emptyLbl.TextSize = 13
+    emptyLbl.TextTransparency = 0.4
+    emptyLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    return sf, emptyLbl, header
+end
+
+local SL_SECTION_STRIDE = 228  -- pixels per section block (28 header + 190 sf + 10 gap)
+local slMainSF, slMainEmpty, slMainHdr = slMakeSection("— STAFF GROUP  (Main Group)", theme.Success,       0)
+local slUndSF,  slUndEmpty,  slUndHdr  = slMakeSection("— UNDERCOVER",          theme.Warning,       SL_SECTION_STRIDE)
+local slPossSF, slPossEmpty, slPossHdr = slMakeSection("— POSSIBLE STAFF",      theme.PossibleStaff, SL_SECTION_STRIDE * 2)
+
+-- Add one player row at the given index inside a ScrollingFrame
+local function slAddRow(sf, idx, nameText, detailText, color)
+    local yPos = (idx - 1) * SL_STRIDE + 6
+    local row = Instance.new("Frame", sf)
+    row.Name = "Row_" .. idx
+    row.BackgroundColor3 = theme.BackgroundTertiary
+    row.BorderSizePixel  = 0
+    row.Position = UDim2.new(0, 4, 0, yPos)
+    row.Size     = UDim2.new(1, -8, 0, SL_ROW_H)
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    local rs = Instance.new("UIStroke", row)
+    rs.Color = color
+    rs.Thickness = 1
+    rs.Transparency = 0.6
+
+    local bar = Instance.new("Frame", row)
+    bar.BackgroundColor3 = color
+    bar.BorderSizePixel  = 0
+    bar.Position = UDim2.new(0, 0, 0, 0)
+    bar.Size     = UDim2.new(0, 3, 1, 0)
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 8)
+
+    local nameLbl = Instance.new("TextLabel", row)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Position = UDim2.new(0, 10, 0, 5)
+    nameLbl.Size     = UDim2.new(1, -14, 0, 22)
+    nameLbl.Font     = Enum.Font.GothamBold
+    nameLbl.Text     = nameText
+    nameLbl.TextColor3 = theme.TextPrimary
+    nameLbl.TextSize = 15
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+    nameLbl.TextTruncate   = Enum.TextTruncate.AtEnd
+
+    local detailLbl = Instance.new("TextLabel", row)
+    detailLbl.BackgroundTransparency = 1
+    detailLbl.Position = UDim2.new(0, 10, 0, 30)
+    detailLbl.Size     = UDim2.new(1, -14, 0, 18)
+    detailLbl.Font     = Enum.Font.Gotham
+    detailLbl.Text     = detailText
+    detailLbl.TextColor3 = color
+    detailLbl.TextSize = 13
+    detailLbl.TextXAlignment = Enum.TextXAlignment.Left
+    detailLbl.TextTruncate   = Enum.TextTruncate.AtEnd
+end
+
+-- Clear all player rows from a section (leaves emptyLbl intact)
+local function slClear(sf)
+    for _, c in ipairs(sf:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+end
+
+-- Populate a section: add rows and update CanvasSize + counter header
+local function slPopulate(entries, sf, emptyLbl, color, hdr, title)
+    slClear(sf)
+    emptyLbl.Visible = (#entries == 0)
+    for i, e in ipairs(entries) do
+        slAddRow(sf, i, e.display, e.detail, color)
+    end
+    -- Set CanvasSize explicitly so the ScrollingFrame knows how tall the content is
+    local totalH = #entries * SL_STRIDE + 12
+    sf.CanvasSize = UDim2.new(1, 0, 0, totalH)
+    hdr.Text = title .. " [" .. #entries .. "]"
+end
+
+local function addEntry(scroll, nameText, detailText, accentColor)
+    -- Count existing rows so we can assign a LayoutOrder
+    local count = 0
+    for _, c in ipairs(scroll:GetChildren()) do if c:IsA("Frame") then count = count + 1 end end
+
+    -- Row is sized; UIListLayout handles vertical stacking automatically
+    local row = Instance.new("Frame", scroll)
+    row.BackgroundColor3 = theme.BackgroundTertiary
+    row.Size         = UDim2.new(1, 0, 0, 50)
+    row.LayoutOrder  = count + 1
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+    local rs = Instance.new("UIStroke", row)
+    rs.Color = accentColor
+    rs.Thickness = 1
+    rs.Transparency = 0.7
+
+    -- Colour accent bar on the left
+    local accent = Instance.new("Frame", row)
+    accent.BackgroundColor3 = accentColor
+    accent.Position = UDim2.new(0, 0, 0, 0)
+    accent.Size     = UDim2.new(0, 3, 1, 0)
+    Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 8)
+
+    local nameLbl = Instance.new("TextLabel", row)
+    nameLbl.BackgroundTransparency = 1
+    nameLbl.Position = UDim2.new(0, 12, 0, 5)
+    nameLbl.Size     = UDim2.new(1, -16, 0, 19)
+    nameLbl.Font     = Enum.Font.GothamBold
+    nameLbl.Text     = nameText
+    nameLbl.TextColor3    = theme.TextPrimary
+    nameLbl.TextSize      = 15
+    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+    nameLbl.TextTruncate  = Enum.TextTruncate.AtEnd
+
+    local detailLbl = Instance.new("TextLabel", row)
+    detailLbl.BackgroundTransparency = 1
+    detailLbl.Position = UDim2.new(0, 12, 0, 27)
+    detailLbl.Size     = UDim2.new(1, -16, 0, 17)
+    detailLbl.Font     = Enum.Font.Gotham
+    detailLbl.Text     = detailText
+    detailLbl.TextColor3    = accentColor
+    detailLbl.TextSize      = 13
+    detailLbl.TextXAlignment = Enum.TextXAlignment.Left
+    detailLbl.TextTruncate  = Enum.TextTruncate.AtEnd
+
+    return count + 1
+end
+
+local function refreshStaffList()
+    slClear(slMainSF)
+    slClear(slUndSF)
+    slClear(slPossSF)
+
+    local mainEntries = {}
+    local undEntries  = {}
+    local possEntries = {}
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p == localPlayer then continue end
+        local mains      = getMainMemberships(p)
+        local possible   = getPossibleMemberships(p)
+        local inMain     = #mains > 0
+        local inPossible = #possible > 0
+        local isU        = isUndercover(p, inMain)
+        local category   = getPlayerCategory(inMain, isU, inPossible)
+        if not category then continue end
+
+        local nameText = p.DisplayName .. " (@" .. p.Name .. ")"
+
+        if inMain then
+            local mainParts = {}
+            for _, m in ipairs(mains) do table.insert(mainParts, getGroupName(m.id) .. ": " .. m.role) end
+            local detail = table.concat(mainParts, "  |  ")
+            if inPossible then
+                local extras = {}
+                for _, m in ipairs(possible) do table.insert(extras, getGroupName(m.id) .. ": " .. m.role) end
+                detail = detail .. "  |  " .. table.concat(extras, "  |  ")
+            end
+            table.insert(mainEntries, { name = p.Name, display = nameText, detail = detail })
+        end
+
+        if isU and not inMain then
+            local detail = "⚠ UNDERCOVER"
+            if inPossible then
+                local extras = {}
+                for _, m in ipairs(possible) do table.insert(extras, getGroupName(m.id) .. ": " .. m.role) end
+                detail = detail .. "  |  " .. table.concat(extras, "  |  ")
+            end
+            table.insert(undEntries, { name = p.Name, display = nameText, detail = detail })
+        end
+
+        if inPossible then
+            local parts = {}
+            for _, m in ipairs(possible) do table.insert(parts, getGroupName(m.id) .. ": " .. m.role) end
+            table.insert(possEntries, { name = p.Name, display = nameText, detail = table.concat(parts, "  |  ") })
+        end
+    end
+
+    local function sortAlpha(t) table.sort(t, function(a, b) return a.name:lower() < b.name:lower() end) end
+    sortAlpha(mainEntries) sortAlpha(undEntries) sortAlpha(possEntries)
+-- xx Subtitles staff list
+    slPopulate(mainEntries, slMainSF, slMainEmpty, theme.Success,       slMainHdr, "— STAFF GROUP [MAIN]")
+    slPopulate(undEntries,  slUndSF,  slUndEmpty,  theme.Warning,       slUndHdr,  "— UNDERCOVER STAFF [HIGH CHANCE]")
+    slPopulate(possEntries, slPossSF, slPossEmpty, theme.PossibleStaff, slPossHdr, "— POSSIBLE STAFF GROUP [LOW CHANCE]")
+end
+
+-- Refresh when the page is opened
+staffListPage:GetPropertyChangedSignal("Visible"):Connect(function()
+    if staffListPage.Visible then pcall(refreshStaffList) end
+end)
+
+-- Returns true if a player is relevant to the staff list.
+-- Used so we only refresh the list when someone who matters joins or leaves.
+local function isRelevantPlayer(p)
+    if UNDERCOVER_USERIDS[p.UserId] then return true end
+    for _, gid in ipairs(MAIN_GROUP_IDS) do
+        local ok, inMain = pcall(function() return p:IsInGroup(gid) end)
+        if ok and inMain then return true end
+    end
+    for _, gid in ipairs(POSSIBLE_STAFF_GROUP_IDS) do
+        local ok2, inG = pcall(function() return p:IsInGroup(gid) end)
+        if ok2 and inG then return true end
+    end
+    return false
+end
+
+
+-- ======================================================== --
+--  MULTI-TARGET FLING INTEGRATION
+-- ======================================================== --
+local SelectedTargets = {}
+local PlayerCheckboxes = {}
+local FlingActive = false
+getgenv().OldPos = nil
+getgenv().FPDH = workspace.FallenPartsDestroyHeight
+
+local ft = Instance.new("TextLabel", flingPage)
+ft.BackgroundTransparency = 1
+ft.Size = UDim2.new(1, 0, 0, 30)
+ft.Font = Enum.Font.GothamBold
+ft.Text = "MULTI-TARGET FLING"
+ft.TextColor3 = theme.AccentSecondary
+ft.TextSize = 14
+ft.TextXAlignment = Enum.TextXAlignment.Left
+
+local flingStatus = Instance.new("TextLabel", flingPage)
+flingStatus.BackgroundTransparency = 1
+flingStatus.Position = UDim2.new(0, 0, 0, 30)
+flingStatus.Size = UDim2.new(1, 0, 0, 20)
+flingStatus.Font = Enum.Font.Gotham
+flingStatus.Text = "0 target(s) selected"
+flingStatus.TextColor3 = theme.TextPrimary
+flingStatus.TextSize = 12
+flingStatus.TextXAlignment = Enum.TextXAlignment.Left
+
+local function makeFlingBtn(text, posScale, yOffset, color, parent)
+    local b = Instance.new("TextButton", parent)
+    b.BackgroundColor3 = color
+    b.Position = UDim2.new(posScale, 0, 0, yOffset)
+    b.Size = UDim2.new(0.48, 0, 0, 35)
+    b.Font = Enum.Font.GothamBold
+    b.Text = text
+    b.TextColor3 = theme.TextPrimary
+    b.TextSize = 12
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    return b
+end
+
+local startFlingBtn  = makeFlingBtn("START FLING",  0,    60,  Color3.fromRGB(0, 150, 0), flingPage)
+local stopFlingBtn   = makeFlingBtn("STOP FLING",   0.52, 60,  theme.Warning,             flingPage)
+local selectAllBtn   = makeFlingBtn("SELECT ALL",   0,    105, theme.BackgroundTertiary,  flingPage)
+local deselectAllBtn = makeFlingBtn("DESELECT ALL", 0.52, 105, theme.BackgroundTertiary,  flingPage)
+selectAllBtn.Font  = Enum.Font.Gotham
+deselectAllBtn.Font = Enum.Font.Gotham
+
+local pListFrame = Instance.new("Frame", flingPage)
+pListFrame.BackgroundColor3 = theme.BackgroundSecondary
+pListFrame.Position = UDim2.new(0, 0, 0, 150)
+pListFrame.Size = UDim2.new(1, 0, 0, 200)
+Instance.new("UICorner", pListFrame).CornerRadius = UDim.new(0, 12)
+local pListStroke = Instance.new("UIStroke", pListFrame)
+pListStroke.Color = theme.AccentSecondary
+pListStroke.Thickness = 1
+pListStroke.Transparency = 0.5
+
+local pScroll = Instance.new("ScrollingFrame", pListFrame)
+pScroll.BackgroundTransparency = 1
+pScroll.Position = UDim2.new(0, 5, 0, 5)
+pScroll.Size = UDim2.new(1, -10, 1, -10)
+pScroll.ScrollBarThickness = 4
+pScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+
+local function SkidFling(TargetPlayer)
+    local Character = localPlayer.Character
+    local Humanoid  = Character and Character:FindFirstChildOfClass("Humanoid")
+    local RootPart  = Humanoid and Humanoid.RootPart
+    local TCharacter = TargetPlayer.Character
+    if not TCharacter then return end
+
+    local THumanoid, TRootPart, THead, Accessory, Handle
+    if TCharacter:FindFirstChildOfClass("Humanoid") then THumanoid = TCharacter:FindFirstChildOfClass("Humanoid") end
+    if THumanoid and THumanoid.RootPart then TRootPart = THumanoid.RootPart end
+    if TCharacter:FindFirstChild("Head") then THead = TCharacter.Head end
+    if TCharacter:FindFirstChildOfClass("Accessory") then Accessory = TCharacter:FindFirstChildOfClass("Accessory") end
+    if Accessory and Accessory:FindFirstChild("Handle") then Handle = Accessory.Handle end
+
+    if Character and Humanoid and RootPart then
+        if RootPart.Velocity.Magnitude < 50 then
+            getgenv().OldPos = RootPart.CFrame
+        end
+
+        if THumanoid and THumanoid.Sit then
+            notify("FLING ERROR", TargetPlayer.Name .. " is sitting", 2, "warning")
+            return
+        end
+        if THead then workspace.CurrentCamera.CameraSubject = THead
+        elseif Handle then workspace.CurrentCamera.CameraSubject = Handle
+        elseif THumanoid and TRootPart then workspace.CurrentCamera.CameraSubject = THumanoid end
+        if not TCharacter:FindFirstChildWhichIsA("BasePart") then return end
+
+        local FPos = function(BasePart, Pos, Ang)
+            RootPart.CFrame = CFrame.new(BasePart.Position) * Pos * Ang
+            Character:SetPrimaryPartCFrame(CFrame.new(BasePart.Position) * Pos * Ang)
+            RootPart.Velocity = Vector3.new(9e7, 9e7 * 10, 9e7)
+            RootPart.RotVelocity = Vector3.new(9e8, 9e8, 9e8)
+        end
+
+        local SFBasePart = function(BasePart)
+            local TimeToWait = 2
+            local Time = tick()
+            local Angle = 0
+            repeat
+                if RootPart and THumanoid then
+                    if BasePart.Velocity.Magnitude < 50 then
+                        Angle = Angle + 100
+                        FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection * BasePart.Velocity.Magnitude / 1.25, CFrame.Angles(math.rad(Angle), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, 1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, 0) + THumanoid.MoveDirection, CFrame.Angles(math.rad(Angle), 0, 0)) task.wait()
+                    else
+                        FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, -THumanoid.WalkSpeed), CFrame.Angles(0, 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, 1.5, THumanoid.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0)) task.wait()
+                        FPos(BasePart, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)) task.wait()
+                    end
+                end
+            until Time + TimeToWait < tick() or not FlingActive
+        end
+
+        workspace.FallenPartsDestroyHeight = 0/0
+
+        local BV = Instance.new("BodyVelocity")
+        BV.Parent = RootPart
+        BV.Velocity = Vector3.new(0, 0, 0)
+        BV.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+        if TRootPart then SFBasePart(TRootPart)
+        elseif THead then SFBasePart(THead)
+        elseif Handle then SFBasePart(Handle)
+        else
+            BV:Destroy()
+            Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+            workspace.FallenPartsDestroyHeight = getgenv().FPDH
+            notify("FLING ERROR", TargetPlayer.Name .. " has no valid parts", 2, "warning")
+            return
+        end
+
+        BV:Destroy()
+        Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+        workspace.CurrentCamera.CameraSubject = Humanoid
+
+        if getgenv().OldPos then
+            repeat
+                RootPart.CFrame = getgenv().OldPos * CFrame.new(0, 0.5, 0)
+                Character:SetPrimaryPartCFrame(getgenv().OldPos * CFrame.new(0, 0.5, 0))
+                Humanoid:ChangeState("GettingUp")
+                for _, part in pairs(Character:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        part.Velocity, part.RotVelocity = Vector3.new(), Vector3.new()
+                    end
+                end
+                task.wait()
+            until (RootPart.Position - getgenv().OldPos.Position).Magnitude < 25 or not FlingActive
+            workspace.FallenPartsDestroyHeight = getgenv().FPDH
+        end
+    else
+        notify("FLING ERROR", "Your character is not ready", 2, "warning")
+    end
+end
+
+local function CountSelectedTargets()
+    local c = 0
+    for _ in pairs(SelectedTargets) do c = c + 1 end
+    return c
+end
+
+local function UpdateFlingStatus()
+    local c = CountSelectedTargets()
+    if FlingActive then
+        flingStatus.Text = "Flinging " .. c .. " target(s)"
+        flingStatus.TextColor3 = theme.Warning
+    else
+        flingStatus.Text = c .. " target(s) selected"
+        flingStatus.TextColor3 = theme.TextPrimary
+    end
+end
+
+local function RefreshFlingList()
+    for _, c in pairs(pScroll:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+    PlayerCheckboxes = {}
+    local pList = Players:GetPlayers()
+    table.sort(pList, function(a, b) return a.Name:lower() < b.Name:lower() end)
+    local yPos = 0
+    for _, p in ipairs(pList) do
+        if p ~= localPlayer then
+            local entry = Instance.new("Frame", pScroll)
+            entry.BackgroundTransparency = 1
+            entry.Size = UDim2.new(1, 0, 0, 25)
+            entry.Position = UDim2.new(0, 0, 0, yPos)
+
+            local cb = Instance.new("TextButton", entry)
+            cb.BackgroundColor3 = theme.BackgroundTertiary
+            cb.Size = UDim2.new(0, 18, 0, 18)
+            cb.Position = UDim2.new(0, 5, 0.5, -9)
+            cb.Text = ""
+            Instance.new("UICorner", cb).CornerRadius = UDim.new(0, 4)
+            local cbStroke = Instance.new("UIStroke", cb)
+            cbStroke.Color = theme.AccentSecondary
+            cbStroke.Thickness = 1
+
+            local cm = Instance.new("TextLabel", cb)
+            cm.BackgroundTransparency = 1
+            cm.Size = UDim2.new(1, 0, 1, 0)
+            cm.Font = Enum.Font.GothamBold
+            cm.Text = "✓"
+            cm.TextColor3 = theme.Success
+            cm.TextSize = 14
+            cm.Visible = SelectedTargets[p.Name] ~= nil
+
+            local nameLbl = Instance.new("TextLabel", entry)
+            nameLbl.BackgroundTransparency = 1
+            nameLbl.Position = UDim2.new(0, 30, 0, 0)
+            nameLbl.Size = UDim2.new(1, -35, 1, 0)
+            nameLbl.Font = Enum.Font.Gotham
+            nameLbl.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+            nameLbl.TextColor3 = theme.TextSecondary
+            nameLbl.TextSize = 12
+            nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+
+            local clicker = Instance.new("TextButton", entry)
+            clicker.BackgroundTransparency = 1
+            clicker.Size = UDim2.new(1, 0, 1, 0)
+            clicker.Text = ""
+            clicker.ZIndex = 2
+
+            clicker.MouseButton1Click:Connect(function()
+                if SelectedTargets[p.Name] then
+                    SelectedTargets[p.Name] = nil
+                    cm.Visible = false
+                else
+                    SelectedTargets[p.Name] = p
+                    cm.Visible = true
+                end
+                UpdateFlingStatus()
+            end)
+
+            PlayerCheckboxes[p.Name] = { Entry = entry, Checkmark = cm }
+            yPos = yPos + 30
+        end
+    end
+    pScroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+end
+
+local function ToggleAll(sel)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= localPlayer then
+            local data = PlayerCheckboxes[p.Name]
+            if data then
+                if sel then
+                    SelectedTargets[p.Name] = p
+                    data.Checkmark.Visible = true
+                else
+                    SelectedTargets[p.Name] = nil
+                    data.Checkmark.Visible = false
+                end
+            end
+        end
+    end
+    UpdateFlingStatus()
+end
+
+startFlingBtn.MouseButton1Click:Connect(function()
+    if FlingActive then return end
+    local c = CountSelectedTargets()
+    if c == 0 then
+        notify("FLING", "No targets selected!", 3, "warning")
+        return
+    end
+    FlingActive = true
+    UpdateFlingStatus()
+    notify("FLING", "Started flinging " .. c .. " targets", 3, "success")
+    task.spawn(function()
+        while FlingActive do
+            local valid = {}
+            for name, p in pairs(SelectedTargets) do
+                if p and p.Parent then valid[name] = p
+                else
+                    SelectedTargets[name] = nil
+                    if PlayerCheckboxes[name] then PlayerCheckboxes[name].Checkmark.Visible = false end
+                end
+            end
+            for _, p in pairs(valid) do
+                if FlingActive then SkidFling(p) task.wait(0.1)
+                else break end
+            end
+            UpdateFlingStatus()
+            task.wait(0.5)
+        end
+    end)
+end)
+
+stopFlingBtn.MouseButton1Click:Connect(function()
+    if not FlingActive then return end
+    FlingActive = false
+    UpdateFlingStatus()
+    notify("FLING", "Fling stopped", 3, "success")
+    workspace.FallenPartsDestroyHeight = getgenv().FPDH
+    if getgenv().OldPos then
+        local char = localPlayer.Character
+        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.CFrame = getgenv().OldPos * CFrame.new(0, 3, 0) end
+    end
+end)
+
+selectAllBtn.MouseButton1Click:Connect(function() ToggleAll(true) end)
+deselectAllBtn.MouseButton1Click:Connect(function() ToggleAll(false) end)
+
+Players.PlayerAdded:Connect(function()
+    task.wait(1)
+    RefreshFlingList()
+end)
+Players.PlayerRemoving:Connect(function(p)
+    if SelectedTargets[p.Name] then SelectedTargets[p.Name] = nil end
+    RefreshFlingList()
+    UpdateFlingStatus()
+end)
+
+RefreshFlingList()
+flingPage.CanvasSize = UDim2.new(0, 0, 0, 360)
+
+task.spawn(function()
+    while flingPage and flingPage.Parent do
+        task.wait(3)
+        pcall(RefreshFlingList)
+        pcall(UpdateFlingStatus)
+    end
+end)
+
+-- Dragging logic
+local dragging, dragInput, dragStart, startPos
+main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = main.Position
+    end
+end)
+main.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+-- Toggle Menu visibility
+main.Visible = state.Visible
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == theme.ToggleKey and not isPlayerTyping() then
+        state.Visible = not state.Visible
+        main.Visible = state.Visible
+    elseif input.KeyCode == Enum.KeyCode.F1 and not isPlayerTyping() then
+        showStaffNotification()
+    end
+end)
+
+-- Init
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= localPlayer then applyESP(p) end
+end
+
+Players.PlayerAdded:Connect(function(p)
+    applyESP(p)
+    -- Wait for group API to settle, then always refresh the staff list
+    task.wait(1)
+    pcall(refreshStaffList)
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+    onPlayerRemoving(p)
+    -- Always refresh immediately when any player leaves
+    pcall(refreshStaffList)
+end)
+
+notify("STAFF ALERT STARTED", "T to toggle menu | F1 to check active staff", 5, "success")
