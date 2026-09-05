@@ -45,6 +45,7 @@ local theme = {
     TextSecondary = Color3.fromRGB(150, 180, 255),
     Success = Color3.fromRGB(0, 255, 150),
     Warning = Color3.fromRGB(255, 100, 0),
+    StaffPresent = Color3.fromRGB(255, 0, 0),
     PossibleStaff = Color3.fromRGB(255, 220, 0),
     ToggleKey = Enum.KeyCode.T
 }
@@ -155,15 +156,18 @@ end
 
 -- === NOTIFICATIONS ===
 local function updateNotifPositions()
+    local stackOffset = 0
     for i, notif in ipairs(state.Notifications) do
-        local targetPos = UDim2.new(1, -320, 0.95, -((i-1) * 90))
+        local targetPos = UDim2.new(1, -320, 0.95, -stackOffset)
         tween(notif, {Position = targetPos}, 0.3)
+        stackOffset = stackOffset + notif.Size.Y.Offset + 10
     end
 end
 
 -- outlineColor (5th arg) overrides the type-based color when provided
 -- force (6th arg) bypasses the NotificationsEnabled toggle (used for F1 check)
-local function notify(title, text, duration, type, outlineColor, force)
+-- fitLines (7th arg) gives a notification enough height for every explicit line.
+local function notify(title, text, duration, type, outlineColor, force, fitLines)
     if not config.NotificationsEnabled and not force then return end
     local color
     if outlineColor then
@@ -179,7 +183,9 @@ local function notify(title, text, duration, type, outlineColor, force)
     local frame = Instance.new("Frame")
     frame.BackgroundColor3 = theme.BackgroundPrimary
     frame.Position = UDim2.new(1, 20, 0.95, 0)
-    frame.Size = UDim2.new(0, 300, 0, 80)
+    local bodyHeight = math.max(35, (fitLines or 2) * 18)
+    local frameHeight = 35 + bodyHeight + 10
+    frame.Size = UDim2.new(0, 300, 0, frameHeight)
     frame.AnchorPoint = Vector2.new(0, 1)
     frame.ZIndex = 10000
     frame.Parent = CoreGui.RobloxGui:FindFirstChild(ids.gui) or CoreGui.RobloxGui
@@ -204,7 +210,7 @@ local function notify(title, text, duration, type, outlineColor, force)
     local bl = Instance.new("TextLabel", frame)
     bl.BackgroundTransparency = 1
     bl.Position = UDim2.new(0, 15, 0, 35)
-    bl.Size = UDim2.new(1, -30, 0, 35)
+    bl.Size = UDim2.new(1, -30, 0, bodyHeight)
     bl.Font = Enum.Font.Gotham
     bl.Text = text
     bl.TextColor3 = theme.TextSecondary
@@ -507,6 +513,7 @@ local topbar = Instance.new("Frame", main)
 topbar.BackgroundColor3 = theme.BackgroundSecondary
 topbar.Position = UDim2.new(0, 0, 0, 0)
 topbar.Size = UDim2.new(1, 0, 0, 55)
+topbar.ClipsDescendants = true
 topbar.ZIndex = 5
 Instance.new("UICorner", topbar).CornerRadius = UDim.new(0, 16)
 addGradient(topbar, theme.BackgroundSecondary, theme.BackgroundTertiary)
@@ -525,17 +532,50 @@ sideLogo.Size = UDim2.new(0, 30, 0, 30)
 sideLogo.ZIndex = 6
 Instance.new("UICorner", sideLogo).CornerRadius = UDim.new(0, 6)
 
+local profileImage = Instance.new("ImageLabel", sideLogo)
+profileImage.BackgroundTransparency = 1
+profileImage.Position = UDim2.new(0, 0, 0, 0)
+profileImage.Size = UDim2.new(1, 0, 1, 0)
+profileImage.Image = ""
+profileImage.ScaleType = Enum.ScaleType.Crop
+profileImage.ZIndex = 7
+Instance.new("UICorner", profileImage).CornerRadius = UDim.new(0, 6)
+local profileStroke = Instance.new("UIStroke", profileImage)
+profileStroke.Color = Color3.fromRGB(110, 235, 255)
+profileStroke.Thickness = 1
+profileStroke.Transparency = 0.12
+
+task.spawn(function()
+    local ok, thumbnail = pcall(function()
+        return Players:GetUserThumbnailAsync(
+            localPlayer.UserId,
+            Enum.ThumbnailType.HeadShot,
+            Enum.ThumbnailSize.Size100x100
+        )
+    end)
+    if ok and thumbnail and profileImage.Parent then
+        profileImage.Image = thumbnail
+    end
+end)
+
 local sideTitle = Instance.new("TextLabel", topbar)
 sideTitle.BackgroundTransparency = 1
 sideTitle.Position = UDim2.new(0, 55, 0, 12)
-sideTitle.Size = UDim2.new(0, 60, 0, 30)
+sideTitle.Size = UDim2.new(0, 108, 0, 30)
 sideTitle.Font = Enum.Font.GothamBold
 -- xx MENU NAME
-sideTitle.Text = "PREMIUM STAFF ALERT"
+sideTitle.Text = "STAFF ALERT PREMIUM"
 sideTitle.TextColor3 = theme.TextPrimary
-sideTitle.TextSize = 14
+sideTitle.TextSize = 13
 sideTitle.TextXAlignment = Enum.TextXAlignment.Left
 sideTitle.ZIndex = 6
+local sideTitleGradient = Instance.new("UIGradient", sideTitle)
+sideTitleGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 225, 255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 130, 255))
+})
+sideTitleGradient.Offset = Vector2.new(-1, 0)
 
 local topAnnouncement = Instance.new("TextLabel", topbar)
 topAnnouncement.BackgroundTransparency = 1
@@ -543,12 +583,42 @@ topAnnouncement.Position = UDim2.new(0, 170, 0, 0)
 topAnnouncement.Size = UDim2.new(1, -130, 1, 0)
 topAnnouncement.Font = Enum.Font.GothamBold
 --xx Updated:                                                          --
-topAnnouncement.Text = "Updated: 05/09/2026 | Group updated"
+topAnnouncement.Text = "Updated: 05/09/2026 | Up to date"
 topAnnouncement.TextColor3 = theme.TextSecondary
 topAnnouncement.TextSize = 17
 topAnnouncement.TextXAlignment = Enum.TextXAlignment.Left
 topAnnouncement.TextYAlignment = Enum.TextYAlignment.Center
 topAnnouncement.ZIndex = 6
+
+local topbarGlint = Instance.new("Frame", topbar)
+topbarGlint.BackgroundColor3 = Color3.fromRGB(115, 235, 255)
+topbarGlint.BackgroundTransparency = 0.35
+topbarGlint.BorderSizePixel = 0
+topbarGlint.Position = UDim2.new(0, -70, 0, 0)
+topbarGlint.Size = UDim2.new(0, 70, 0, 2)
+topbarGlint.ZIndex = 7
+local topbarGlintGradient = Instance.new("UIGradient", topbarGlint)
+topbarGlintGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 210, 255)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(170, 100, 255))
+})
+topbarGlintGradient.Transparency = NumberSequence.new({
+    NumberSequenceKeypoint.new(0, 1),
+    NumberSequenceKeypoint.new(0.5, 0),
+    NumberSequenceKeypoint.new(1, 1)
+})
+
+task.spawn(function()
+    task.wait(1.2)
+    while topbar and topbar.Parent do
+        topbarGlint.Position = UDim2.new(0, -70, 0, 1)
+        tween(topbarGlint, {Position = UDim2.new(1, 0, 0, 1)}, 2.2, Enum.EasingStyle.Linear)
+        sideTitleGradient.Offset = Vector2.new(-1, 0)
+        tween(sideTitleGradient, {Offset = Vector2.new(1, 0)}, 2.2, Enum.EasingStyle.Linear)
+        task.wait(5.2)
+    end
+end)
 
 -- Sidebar
 local sidebar = Instance.new("Frame", main)
@@ -773,6 +843,7 @@ end
 -- xx INFORMATION
 -- Add any extra important notes or announcements here.
 local INFO_LINES = {
+    "• VERSION: STAFF ALERT PREMIUM",
     "• New premium features (check updates below)",
     "• When group gets updated again, be aware that most staff will not be in it yet.",
     "• This will mean it's not as accurate yet, use at own risk.",
@@ -787,6 +858,7 @@ local INFO_LINES = {
 local UPDATE_LINES = {
     "+ Added exclusive multi-fling -> Fling",
     "+ Added exclusive Auto Armor toggle -> Target/Extra",
+    "+ Added Undegroud toggle for fling (stay under the map).",
 }
 
 -- xx EXPERIMENTAL FUNCTIONS
@@ -794,6 +866,7 @@ local UPDATE_LINES = {
 local EXPERIMENTAL_LINES = {
     "+ Added Multi-Fling.",
     "+ Added Auto armor toggle.",
+    "+ Added Undegroud toggle for fling (stay under the map).",
     "! These features may not be 100% accurate at all times, be aware.",
 }
 
@@ -863,11 +936,15 @@ local input = Instance.new("TextBox", targetPage)
 input.BackgroundColor3 = theme.BackgroundTertiary
 input.Position = UDim2.new(0, 0, 0, 40)
 input.Size = UDim2.new(1, 0, 0, 45)
-input.Font = Enum.Font.GothamMedium
-input.PlaceholderText = "Type Username or Display Name..."
+input.Font = Enum.Font.GothamBold
+input.PlaceholderText = "TYPE USERNAME OR DISPLAY NAME"
+input.PlaceholderColor3 = Color3.fromRGB(220, 230, 255)
 input.Text = ""
 input.TextColor3 = theme.TextPrimary
-input.TextSize = 14
+input.TextSize = 16
+input.TextStrokeColor3 = theme.BackgroundPrimary
+input.TextStrokeTransparency = 0.65
+input.TextXAlignment = Enum.TextXAlignment.Center
 input.ClearTextOnFocus = true   -- clears the old name when you click to enter a new one
 Instance.new("UICorner", input).CornerRadius = UDim.new(0, 10)
 local inputStroke = Instance.new("UIStroke", input)
@@ -882,8 +959,8 @@ suggestion.Font = Enum.Font.GothamMedium
 suggestion.Text = ""
 suggestion.TextColor3 = theme.TextSecondary
 suggestion.TextTransparency = 0.5
-suggestion.TextSize = 14
-suggestion.TextXAlignment = Enum.TextXAlignment.Left
+suggestion.TextSize = 15
+suggestion.TextXAlignment = Enum.TextXAlignment.Center
 suggestion.ZIndex = input.ZIndex - 1
 
 local function getBestMatch(txt)
@@ -1075,17 +1152,8 @@ local function showStaffNotification()
         local category   = getPlayerCategory(inMain, isU, inPossible)
         if not category then continue end
 
-        local parts = {}
-        for _, m in ipairs(mains) do
-            table.insert(parts, getGroupName(m.id) .. ": " .. m.role)
-        end
-        if isU and not inMain then
-            table.insert(parts, "[!] UNDERCOVER")
-        end
-        for _, m in ipairs(possible) do
-            table.insert(parts, getGroupName(m.id) .. " (Possible Staff): " .. m.role)
-        end
-        local line = getDisplayName(p) .. " (@" .. p.Name .. ") | " .. table.concat(parts, " | ")
+        -- F1 is intentionally compact: names only, so every active player fits.
+        local line = p.DisplayName .. " (@" .. p.Name .. ")"
 
         if     category == "main"       then table.insert(mainLines, line)
         elseif category == "undercover" then table.insert(undLines,  line)
@@ -1099,7 +1167,7 @@ local function showStaffNotification()
     for _, l in ipairs(possLines) do table.insert(allLines, l) end
 
     if #allLines > 0 then
-        notify("STAFF IN SERVER", table.concat(allLines, "\n"), 8, "warning", nil, true)
+        notify("STAFF IN SERVER", table.concat(allLines, "\n"), 8, nil, theme.StaffPresent, true, #allLines)
     else
         notify("STAFF IN SERVER", "No staff or undercover players currently in the server.", 4, "success", nil, true)
     end
@@ -1375,7 +1443,10 @@ end
 local SelectedTargets = {}
 local PlayerCheckboxes = {}
 local FlingActive = false
+local UndergroundFlingEnabled = false
+local UNDERGROUND_DROP = 200
 getgenv().OldPos = nil
+getgenv().FlingOrigin = nil
 getgenv().FPDH = workspace.FallenPartsDestroyHeight
 
 local ft = Instance.new("TextLabel", flingPage)
@@ -1390,7 +1461,7 @@ ft.TextXAlignment = Enum.TextXAlignment.Left
 local flingStatus = Instance.new("TextLabel", flingPage)
 flingStatus.BackgroundTransparency = 1
 flingStatus.Position = UDim2.new(0, 0, 0, 30)
-flingStatus.Size = UDim2.new(1, 0, 0, 20)
+flingStatus.Size = UDim2.new(0.48, 0, 0, 20)
 flingStatus.Font = Enum.Font.Gotham
 flingStatus.Text = "0 target(s) selected"
 flingStatus.TextColor3 = theme.TextPrimary
@@ -1412,6 +1483,9 @@ end
 
 local startFlingBtn  = makeFlingBtn("START FLING",  0,    60,  Color3.fromRGB(0, 150, 0), flingPage)
 local stopFlingBtn   = makeFlingBtn("STOP FLING",   0.52, 60,  theme.Warning,             flingPage)
+local undergroundFlingBtn = makeFlingBtn("UNDERGROUND: OFF", 0.52, 25, theme.BackgroundTertiary, flingPage)
+undergroundFlingBtn.Font = Enum.Font.Gotham
+undergroundFlingBtn.TextSize = 11
 local selectAllBtn   = makeFlingBtn("SELECT ALL",   0,    105, theme.BackgroundTertiary,  flingPage)
 local deselectAllBtn = makeFlingBtn("DESELECT ALL", 0.52, 105, theme.BackgroundTertiary,  flingPage)
 selectAllBtn.Font  = Enum.Font.Gotham
@@ -1434,6 +1508,91 @@ pScroll.Size = UDim2.new(1, -10, 1, -10)
 pScroll.ScrollBarThickness = 4
 pScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 
+local function getFlingOrigin()
+    return getgenv().FlingOrigin or getgenv().OldPos
+end
+
+local function releaseUndergroundHold()
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = humanoid and humanoid.RootPart
+    local hold = rootPart and rootPart:FindFirstChild("StaffAlertUndergroundHold")
+    if hold then hold:Destroy() end
+end
+
+local function moveCharacterUnderground()
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = humanoid and humanoid.RootPart
+    local origin = getFlingOrigin()
+    if not character or not rootPart or not origin then return end
+
+    local hiddenCFrame = origin * CFrame.new(0, -UNDERGROUND_DROP, 0)
+    rootPart.CFrame = hiddenCFrame
+    pcall(function() character:SetPrimaryPartCFrame(hiddenCFrame) end)
+    rootPart.Velocity = Vector3.new(0, 0, 0)
+    rootPart.RotVelocity = Vector3.new(0, 0, 0)
+
+    local hold = rootPart:FindFirstChild("StaffAlertUndergroundHold")
+    if not hold then
+        hold = Instance.new("BodyPosition")
+        hold.Name = "StaffAlertUndergroundHold"
+        hold.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        hold.P = 9e5
+        hold.D = 1e4
+        hold.Parent = rootPart
+    end
+    hold.Position = hiddenCFrame.Position
+end
+
+local function forceRespawnAtSpawn()
+    releaseUndergroundHold()
+    getgenv().OldPos = nil
+    getgenv().FlingOrigin = nil
+
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local loaded = pcall(function()
+        localPlayer:LoadCharacter()
+    end)
+
+    if not loaded and humanoid then
+        pcall(function()
+            humanoid.Health = 0
+        end)
+    end
+end
+
+local function restoreCharacterToOrigin()
+    releaseUndergroundHold()
+
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = humanoid and humanoid.RootPart
+    local origin = getFlingOrigin()
+    if rootPart and origin then
+        local safeCFrame = origin * CFrame.new(0, 3, 0)
+        rootPart.CFrame = safeCFrame
+        pcall(function() character:SetPrimaryPartCFrame(safeCFrame) end)
+        rootPart.Velocity = Vector3.new(0, 0, 0)
+        rootPart.RotVelocity = Vector3.new(0, 0, 0)
+        humanoid:ChangeState("GettingUp")
+    end
+
+    getgenv().OldPos = nil
+    getgenv().FlingOrigin = nil
+end
+
+undergroundFlingBtn.MouseButton1Click:Connect(function()
+    UndergroundFlingEnabled = not UndergroundFlingEnabled
+    undergroundFlingBtn.Text = UndergroundFlingEnabled and "UNDERGROUND: ON" or "UNDERGROUND: OFF"
+    undergroundFlingBtn.BackgroundColor3 = UndergroundFlingEnabled and theme.AccentPrimary or theme.BackgroundTertiary
+
+    if UndergroundFlingEnabled and FlingActive then
+        moveCharacterUnderground()
+    end
+end)
+
 local function SkidFling(TargetPlayer)
     local Character = localPlayer.Character
     local Humanoid  = Character and Character:FindFirstChildOfClass("Humanoid")
@@ -1449,9 +1608,10 @@ local function SkidFling(TargetPlayer)
     if Accessory and Accessory:FindFirstChild("Handle") then Handle = Accessory.Handle end
 
     if Character and Humanoid and RootPart then
-        if RootPart.Velocity.Magnitude < 50 then
-            getgenv().OldPos = RootPart.CFrame
+        if not getgenv().FlingOrigin then
+            getgenv().FlingOrigin = RootPart.CFrame
         end
+        getgenv().OldPos = getgenv().FlingOrigin
 
         if THumanoid and THumanoid.Sit then
             notify("FLING ERROR", TargetPlayer.Name .. " is sitting", 2, "warning")
@@ -1496,6 +1656,8 @@ local function SkidFling(TargetPlayer)
             until Time + TimeToWait < tick() or not FlingActive
         end
 
+        -- Release the underground hold only while the real fling is running.
+        releaseUndergroundHold()
         workspace.FallenPartsDestroyHeight = 0/0
 
         local BV = Instance.new("BodyVelocity")
@@ -1511,6 +1673,7 @@ local function SkidFling(TargetPlayer)
             BV:Destroy()
             Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
             workspace.FallenPartsDestroyHeight = getgenv().FPDH
+            if UndergroundFlingEnabled and FlingActive then moveCharacterUnderground() end
             notify("FLING ERROR", TargetPlayer.Name .. " has no valid parts", 2, "warning")
             return
         end
@@ -1519,7 +1682,10 @@ local function SkidFling(TargetPlayer)
         Humanoid:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
         workspace.CurrentCamera.CameraSubject = Humanoid
 
-        if getgenv().OldPos then
+        if UndergroundFlingEnabled and FlingActive then
+            moveCharacterUnderground()
+            workspace.FallenPartsDestroyHeight = getgenv().FPDH
+        elseif getgenv().OldPos then
             repeat
                 RootPart.CFrame = getgenv().OldPos * CFrame.new(0, 0.5, 0)
                 Character:SetPrimaryPartCFrame(getgenv().OldPos * CFrame.new(0, 0.5, 0))
@@ -1648,7 +1814,19 @@ startFlingBtn.MouseButton1Click:Connect(function()
         notify("FLING", "No targets selected!", 3, "warning")
         return
     end
+
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = humanoid and humanoid.RootPart
+    if not rootPart then
+        notify("FLING ERROR", "Your character is not ready", 2, "warning")
+        return
+    end
+
+    getgenv().FlingOrigin = rootPart.CFrame
+    getgenv().OldPos = getgenv().FlingOrigin
     FlingActive = true
+    if UndergroundFlingEnabled then moveCharacterUnderground() end
     UpdateFlingStatus()
     notify("FLING", "Started flinging " .. c .. " targets", 3, "success")
     task.spawn(function()
@@ -1677,10 +1855,10 @@ stopFlingBtn.MouseButton1Click:Connect(function()
     UpdateFlingStatus()
     notify("FLING", "Fling stopped", 3, "success")
     workspace.FallenPartsDestroyHeight = getgenv().FPDH
-    if getgenv().OldPos then
-        local char = localPlayer.Character
-        local hrp  = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then hrp.CFrame = getgenv().OldPos * CFrame.new(0, 3, 0) end
+    if UndergroundFlingEnabled then
+        forceRespawnAtSpawn()
+    else
+        restoreCharacterToOrigin()
     end
 end)
 
@@ -1731,7 +1909,300 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- Toggle Menu visibility
-main.Visible = state.Visible
+local function showPremiumIntro()
+    main.Visible = false
+
+    local splash = Instance.new("ScreenGui")
+    splash.Name = randomString(12)
+    splash.IgnoreGuiInset = true
+    splash.ResetOnSpawn = false
+    splash.DisplayOrder = 20000
+    splash.Parent = CoreGui.RobloxGui
+
+    local backdrop = Instance.new("Frame", splash)
+    backdrop.BackgroundColor3 = theme.BackgroundPrimary
+    backdrop.BackgroundTransparency = 1
+    backdrop.Size = UDim2.new(1, 0, 1, 0)
+    backdrop.ZIndex = 1
+    local backdropGradient = Instance.new("UIGradient", backdrop)
+    backdropGradient.Color = ColorSequence.new(
+        Color3.fromRGB(2, 4, 18),
+        Color3.fromRGB(8, 18, 52)
+    )
+    backdropGradient.Rotation = 135
+    tween(backdrop, {BackgroundTransparency = 0.04}, 0.45)
+
+    local scanline = Instance.new("Frame", splash)
+    scanline.BackgroundColor3 = theme.AccentSecondary
+    scanline.BackgroundTransparency = 0.82
+    scanline.BorderSizePixel = 0
+    scanline.Position = UDim2.new(0, -3, 0, 0)
+    scanline.Size = UDim2.new(0, 3, 1, 0)
+    scanline.ZIndex = 2
+    task.spawn(function()
+        tween(scanline, {Position = UDim2.new(1, 0, 0, 0)}, 2.7, Enum.EasingStyle.Linear)
+    end)
+
+    local card = Instance.new("Frame", splash)
+    card.AnchorPoint = Vector2.new(0.5, 0.5)
+    card.BackgroundColor3 = theme.BackgroundSecondary
+    card.BackgroundTransparency = 0.08
+    card.Position = UDim2.new(0.5, 0, 0.5, 0)
+    card.Size = UDim2.new(0, 0, 0, 0)
+    card.ZIndex = 10
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 20)
+    local cardStroke = Instance.new("UIStroke", card)
+    cardStroke.Color = theme.AccentPrimary
+    cardStroke.Thickness = 2
+    cardStroke.Transparency = 1
+    addGlow(card, theme.AccentPrimary, 0.72)
+    tween(card, {Size = UDim2.new(0, 520, 0, 230)}, 0.7, Enum.EasingStyle.Back)
+    tween(cardStroke, {Transparency = 0.18}, 0.7, Enum.EasingStyle.Quad)
+
+    local topAccent = Instance.new("Frame", card)
+    topAccent.BackgroundColor3 = theme.AccentSecondary
+    topAccent.BorderSizePixel = 0
+    topAccent.Position = UDim2.new(0, 24, 0, 18)
+    topAccent.Size = UDim2.new(0, 0, 0, 2)
+    topAccent.ZIndex = 12
+    tween(topAccent, {Size = UDim2.new(1, -48, 0, 2)}, 0.8, Enum.EasingStyle.Quart)
+
+    local logo = Instance.new("Frame", card)
+    logo.BackgroundColor3 = Color3.fromRGB(18, 130, 255)
+    logo.BackgroundTransparency = 0.08
+    logo.Position = UDim2.new(0, 28, 0.5, -41)
+    logo.Size = UDim2.new(0, 82, 0, 82)
+    logo.ZIndex = 12
+    Instance.new("UICorner", logo).CornerRadius = UDim.new(0, 22)
+    local logoGradient = Instance.new("UIGradient", logo)
+    logoGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 220, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 105, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 70, 255))
+    })
+    logoGradient.Rotation = 135
+    local logoStroke = Instance.new("UIStroke", logo)
+    logoStroke.Color = Color3.fromRGB(115, 235, 255)
+    logoStroke.Thickness = 2
+    logoStroke.Transparency = 0.18
+
+    local logoText = Instance.new("TextLabel", logo)
+    logoText.BackgroundTransparency = 1
+    logoText.Size = UDim2.new(1, 0, 1, 0)
+    logoText.Font = Enum.Font.GothamBlack
+    logoText.Text = "01"
+    logoText.TextColor3 = Color3.fromRGB(225, 250, 255)
+    logoText.TextSize = 32
+    logoText.TextStrokeColor3 = Color3.fromRGB(25, 35, 110)
+    logoText.TextStrokeTransparency = 0.2
+    logoText.ZIndex = 13
+    local logoTextGradient = Instance.new("UIGradient", logoText)
+    logoTextGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 255, 255)),
+        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(0.7, Color3.fromRGB(180, 135, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(90, 215, 255))
+    })
+    logoTextGradient.Offset = Vector2.new(-1, 0)
+    task.spawn(function()
+        task.wait(0.35)
+        if not logoTextGradient.Parent then return end
+        tween(logoTextGradient, {Offset = Vector2.new(1, 0)}, 1.8, Enum.EasingStyle.Linear)
+        task.wait(0.35)
+        if logo.Parent then
+            tween(logo, {Rotation = 4}, 0.22, Enum.EasingStyle.Quad)
+            task.wait(0.22)
+            tween(logo, {Rotation = -4}, 0.22, Enum.EasingStyle.Quad)
+            task.wait(0.22)
+            tween(logo, {Rotation = 0}, 0.3, Enum.EasingStyle.Quad)
+        end
+    end)
+
+    local ringOne = Instance.new("Frame", card)
+    ringOne.BackgroundTransparency = 1
+    ringOne.Position = UDim2.new(0, 20, 0.5, -49)
+    ringOne.Size = UDim2.new(0, 98, 0, 98)
+    ringOne.ZIndex = 11
+    Instance.new("UICorner", ringOne).CornerRadius = UDim.new(1, 0)
+    local ringOneStroke = Instance.new("UIStroke", ringOne)
+    ringOneStroke.Color = theme.AccentSecondary
+    ringOneStroke.Thickness = 1
+    ringOneStroke.Transparency = 0.1
+    tween(ringOne, {Size = UDim2.new(0, 145, 0, 145), Position = UDim2.new(0, -3, 0.5, -72)}, 1.5, Enum.EasingStyle.Quad)
+    tween(ringOneStroke, {Transparency = 1}, 1.5, Enum.EasingStyle.Quad)
+
+    local ringTwo = Instance.new("Frame", card)
+    ringTwo.BackgroundTransparency = 1
+    ringTwo.Position = UDim2.new(0, 20, 0.5, -49)
+    ringTwo.Size = UDim2.new(0, 98, 0, 98)
+    ringTwo.ZIndex = 11
+    Instance.new("UICorner", ringTwo).CornerRadius = UDim.new(1, 0)
+    local ringTwoStroke = Instance.new("UIStroke", ringTwo)
+    ringTwoStroke.Color = theme.Success
+    ringTwoStroke.Thickness = 1
+    ringTwoStroke.Transparency = 0.35
+    task.delay(0.42, function()
+        if ringTwo.Parent then
+            tween(ringTwo, {Size = UDim2.new(0, 180, 0, 180), Position = UDim2.new(0, -21, 0.5, -90)}, 1.8, Enum.EasingStyle.Quad)
+            tween(ringTwoStroke, {Transparency = 1}, 1.8, Enum.EasingStyle.Quad)
+        end
+    end)
+
+    local eyebrow = Instance.new("TextLabel", card)
+    eyebrow.BackgroundTransparency = 1
+    eyebrow.Position = UDim2.new(0, 138, 0, 38)
+    eyebrow.Size = UDim2.new(1, -164, 0, 16)
+    eyebrow.Font = Enum.Font.GothamMedium
+    eyebrow.Text = "PRIVATE BUILD  /  EXECUTION SEQUENCE"
+    eyebrow.TextColor3 = theme.TextSecondary
+    eyebrow.TextSize = 10
+    eyebrow.TextTransparency = 1
+    eyebrow.TextXAlignment = Enum.TextXAlignment.Left
+    eyebrow.ZIndex = 12
+    tween(eyebrow, {TextTransparency = 0}, 0.55, Enum.EasingStyle.Quad)
+
+    local title = Instance.new("TextLabel", card)
+    title.BackgroundTransparency = 1
+    title.Position = UDim2.new(0, 136, 0, 54)
+    title.Size = UDim2.new(1, -160, 0, 38)
+    title.Font = Enum.Font.GothamBlack
+    title.Text = "VF STAFF ALERT"
+    title.TextColor3 = Color3.fromRGB(105, 225, 255)
+    title.TextSize = 31
+    title.TextStrokeColor3 = Color3.fromRGB(20, 35, 110)
+    title.TextStrokeTransparency = 0.22
+    title.TextTransparency = 1
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 12
+    tween(title, {TextTransparency = 0}, 0.7, Enum.EasingStyle.Quad)
+    local titleGlint = Instance.new("UIGradient", title)
+    titleGlint.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 155, 255)),
+        ColorSequenceKeypoint.new(0.32, Color3.fromRGB(0, 240, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 145, 255)),
+        ColorSequenceKeypoint.new(0.68, Color3.fromRGB(85, 120, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 180, 255))
+    })
+    titleGlint.Offset = Vector2.new(-1, 0)
+    task.spawn(function()
+        task.wait(0.8)
+        if not titleGlint.Parent then return end
+        tween(titleGlint, {Offset = Vector2.new(1, 0)}, 2.6, Enum.EasingStyle.Linear)
+    end)
+
+    local edition = Instance.new("TextLabel", card)
+    edition.BackgroundTransparency = 1
+    edition.Position = UDim2.new(0, 138, 0, 96)
+    edition.Size = UDim2.new(1, -164, 0, 24)
+    edition.Font = Enum.Font.GothamBold
+    edition.Text = "PREMIUM EDITION"
+    edition.TextColor3 = Color3.fromRGB(255, 235, 55)
+    edition.TextSize = 16
+    edition.TextStrokeColor3 = Color3.fromRGB(120, 75, 0)
+    edition.TextStrokeTransparency = 0.2
+    edition.TextTransparency = 1
+    edition.TextXAlignment = Enum.TextXAlignment.Left
+    edition.ZIndex = 12
+    tween(edition, {TextTransparency = 0}, 0.8, Enum.EasingStyle.Quad)
+    local editionGlint = Instance.new("UIGradient", edition)
+    editionGlint.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 185, 0)),
+        ColorSequenceKeypoint.new(0.32, Color3.fromRGB(255, 225, 25)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 175)),
+        ColorSequenceKeypoint.new(0.68, Color3.fromRGB(255, 215, 0)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 170, 0))
+    })
+    editionGlint.Offset = Vector2.new(-1, 0)
+    task.spawn(function()
+        task.wait(1.15)
+        if not editionGlint.Parent then return end
+        tween(editionGlint, {Offset = Vector2.new(1, 0)}, 2.35, Enum.EasingStyle.Linear)
+    end)
+
+    local maker = Instance.new("TextLabel", card)
+    maker.BackgroundTransparency = 1
+    maker.Position = UDim2.new(0, 138, 0, 124)
+    maker.Size = UDim2.new(1, -164, 0, 14)
+    maker.Font = Enum.Font.GothamMedium
+    maker.Text = "CREATED BY"
+    maker.TextColor3 = theme.TextSecondary
+    maker.TextSize = 11
+    maker.TextTransparency = 1
+    maker.TextXAlignment = Enum.TextXAlignment.Left
+    maker.ZIndex = 12
+    tween(maker, {TextTransparency = 0}, 0.9, Enum.EasingStyle.Quad)
+
+    local creatorName = Instance.new("TextLabel", card)
+    creatorName.BackgroundTransparency = 1
+    creatorName.Position = UDim2.new(0, 138, 0, 138)
+    creatorName.Size = UDim2.new(1, -164, 0, 26)
+    creatorName.Font = Enum.Font.GothamBold
+    creatorName.Text = "we1qxpo7j8fgkh3ok0ji"
+    creatorName.TextColor3 = Color3.fromRGB(155, 220, 255)
+    creatorName.TextSize = 17
+    creatorName.TextStrokeColor3 = Color3.fromRGB(25, 35, 105)
+    creatorName.TextStrokeTransparency = 0.22
+    creatorName.TextTransparency = 1
+    creatorName.TextXAlignment = Enum.TextXAlignment.Left
+    creatorName.ZIndex = 12
+    tween(creatorName, {TextTransparency = 0}, 1.05, Enum.EasingStyle.Quad)
+    local creatorGlint = Instance.new("UIGradient", creatorName)
+    creatorGlint.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(65, 165, 255)),
+        ColorSequenceKeypoint.new(0.3, Color3.fromRGB(100, 245, 255)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 155, 255)),
+        ColorSequenceKeypoint.new(0.7, Color3.fromRGB(110, 125, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(65, 185, 255))
+    })
+    creatorGlint.Offset = Vector2.new(-1, 0)
+    task.spawn(function()
+        task.wait(1.2)
+        if not creatorGlint.Parent then return end
+        tween(creatorGlint, {Offset = Vector2.new(1, 0)}, 2.55, Enum.EasingStyle.Linear)
+    end)
+
+    local progressTrack = Instance.new("Frame", card)
+    progressTrack.BackgroundColor3 = theme.BackgroundTertiary
+    progressTrack.BackgroundTransparency = 0.15
+    progressTrack.BorderSizePixel = 0
+    progressTrack.Position = UDim2.new(0, 138, 0, 166)
+    progressTrack.Size = UDim2.new(1, -164, 0, 5)
+    progressTrack.ZIndex = 12
+    Instance.new("UICorner", progressTrack).CornerRadius = UDim.new(1, 0)
+
+    local progressFill = Instance.new("Frame", progressTrack)
+    progressFill.BackgroundColor3 = theme.AccentSecondary
+    progressFill.BorderSizePixel = 0
+    progressFill.Size = UDim2.new(0, 0, 1, 0)
+    progressFill.ZIndex = 13
+    Instance.new("UICorner", progressFill).CornerRadius = UDim.new(1, 0)
+    tween(progressFill, {Size = UDim2.new(1, 0, 1, 0)}, 2.8, Enum.EasingStyle.Quart)
+
+    local status = Instance.new("TextLabel", card)
+    status.BackgroundTransparency = 1
+    status.Position = UDim2.new(0, 138, 0, 178)
+    status.Size = UDim2.new(1, -164, 0, 18)
+    status.Font = Enum.Font.GothamMedium
+    status.Text = "INITIALIZING STAFF ALERT"
+    status.TextColor3 = theme.TextPrimary
+    status.TextSize = 11
+    status.TextStrokeColor3 = theme.BackgroundPrimary
+    status.TextStrokeTransparency = 0.55
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.ZIndex = 12
+
+    task.spawn(function()
+        task.wait(3.5)
+        tween(card, {BackgroundTransparency = 1, Size = UDim2.new(0, 560, 0, 248)}, 0.45, Enum.EasingStyle.Quad)
+        tween(cardStroke, {Transparency = 1}, 0.45, Enum.EasingStyle.Quad)
+        tween(backdrop, {BackgroundTransparency = 1}, 0.55, Enum.EasingStyle.Quad)
+        task.wait(0.6)
+        if splash.Parent then splash:Destroy() end
+        main.Visible = state.Visible
+    end)
+end
+
+main.Visible = false
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.KeyCode == theme.ToggleKey and not isPlayerTyping() then
@@ -1760,4 +2231,8 @@ Players.PlayerRemoving:Connect(function(p)
     pcall(refreshStaffList)
 end)
 
-notify("STAFF ALERT STARTED", "T to toggle menu | F1 to check active staff", 5, "success")
+task.spawn(function()
+    task.wait(3)
+    showPremiumIntro()
+    notify("STAFF ALERT STARTED", "T to toggle menu | F1 to check active staff", 5, "success")
+end)
