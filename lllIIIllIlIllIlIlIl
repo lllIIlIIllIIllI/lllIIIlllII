@@ -1,5 +1,5 @@
 --========================================================--
---  Staff Alert Premium by we1qxpo7j8fgkh3ok0ji
+--  Staff Alert Premium by 01
 --  Keybind: T
 --  This script is private property.
 ----========================================================--
@@ -36,17 +36,18 @@ local ids = {
 }
 
 local theme = {
-    BackgroundPrimary = Color3.fromRGB(5, 5, 15),
-    BackgroundSecondary = Color3.fromRGB(10, 10, 25),
-    BackgroundTertiary = Color3.fromRGB(15, 15, 35),
-    AccentPrimary = Color3.fromRGB(0, 100, 255),
-    AccentSecondary = Color3.fromRGB(31, 81, 255),
+    BackgroundPrimary = Color3.fromRGB(16, 18, 30),
+    BackgroundSecondary = Color3.fromRGB(25, 28, 44),
+    BackgroundTertiary = Color3.fromRGB(38, 42, 62),
+    AccentPrimary = Color3.fromRGB(0, 185, 255),
+    AccentSecondary = Color3.fromRGB(105, 92, 255),
     TextPrimary = Color3.fromRGB(255, 255, 255),
-    TextSecondary = Color3.fromRGB(150, 180, 255),
+    TextSecondary = Color3.fromRGB(205, 215, 240),
     Success = Color3.fromRGB(0, 255, 150),
     Warning = Color3.fromRGB(255, 100, 0),
     StaffPresent = Color3.fromRGB(255, 0, 0),
     PossibleStaff = Color3.fromRGB(255, 220, 0),
+    Admin = Color3.fromRGB(255, 38, 62),
     ToggleKey = Enum.KeyCode.T
 }
 
@@ -58,7 +59,79 @@ local config = {
     StaffESPEnabled = true,
     NotificationsEnabled = true,
     SoundsEnabled = true,
+    StaffSaveSettings = false,
     AutoArmorEnabled = false,
+    TargetSaveSettings = false,
+    AutoKickEnabled = false,
+    Aim = {
+        SaveSettings = false,
+        ShowFOV = false,
+        TargetAimEnabled = false,
+        TargetAimResolver = false,
+        TargetAimParts = {
+            Head = false,
+            HumanoidRootPart = true,
+            UpperTorso = false,
+            LowerTorso = false,
+        },
+        TargetAimPrediction = { X = 0, Y = 0, Z = 0 },
+        SilentEnabled = false,
+        SilentResolver = false,
+        SilentFOV = 100,
+        SilentParts = {
+            Head = false,
+            HumanoidRootPart = true,
+            UpperTorso = false,
+            LowerTorso = false,
+        },
+        SilentPrediction = { X = 0, Y = 0, Z = 0 },
+        TriggerEnabled = false,
+        -- Target Aim intentionally ignores KO. The other three aim modes use
+        -- the original Loomi BodyEffects.K.O safety check.
+        TriggerKOCheck = true,
+        TriggerStart = 0.001,
+        TriggerEnd = 0.004,
+        CameraEnabled = false,
+        CameraResolver = false,
+        CameraMouseButton2 = true,
+        CameraFOV = 100,
+        CameraSmoothing = 0.0121,
+        CameraParts = {
+            Head = false,
+            HumanoidRootPart = true,
+            UpperTorso = false,
+            LowerTorso = false,
+        },
+        CameraPrediction = { X = 0, Y = 0, Z = 0 },
+        TriggerKey = nil,
+        CancelKey = nil,
+        TargetKey = nil,
+        AimHighlightEnabled = false,
+        AimRainbowHighlightEnabled = false,
+        AimTargetNotify = false,
+        Macro = {
+            Enabled = false,
+            Mode = "toggle",
+            Key = Enum.KeyCode.X,
+        },
+    },
+    AutoKill = {
+        SaveSettings = false,
+        Enabled = false,
+        ShowPlayerList = false,
+        ToolOffset = {
+            X = -41,
+            Y = 93,
+            Z = -15,
+        },
+        Prediction = 0,
+        Resolver = false,
+        SilentEnabled = false,
+        SilentPrediction = 0,
+        FireInterval = 0.04,
+    },
+    FakeAutoArmorEnabled = false,
+    AutoArmorNotifications = true,
 }
 
 local state = {
@@ -68,8 +141,14 @@ local state = {
     StaffESPFolder = nil,
     UndercoverESPFolder = nil,
     PossibleESPFolder = nil,
-    Notifications = {}
+    Notifications = {},
+    KeybindCapture = false,
+    CancelKeybindCapture = nil,
 }
+
+local menuKey
+local staffCheckKey
+local AUTO_KILL_DROP_DISTANCE = 100
 
 -- === GROUP CONFIG ===
 local MAIN_GROUP_IDS = { 848374803, 996191638  }
@@ -108,15 +187,36 @@ local UNDERCOVER_USERIDS = {
     [1] = true, [1] = true, [1] = true, [1] = true, [1] = true  -- < js everyone in the group not necessarily undercover | Mod
 }
 
+local ADMIN_USERIDS = {
+    [9242413057] = true,
+    [2241675937] = true,
+    [1115590282] = true,
+    [386141208] = true,
+    [301447922] = true,
+    [9221310778] = true,
+    [2836808851] = true,
+    [432780325] = true,
+}
+
 local SPECIAL_TAGS = {
     [2309457259] = "[👑]",
-    [1115590282] = "[⚜️]",
-    [9242413057] = "[🪐]",
+    [9242413057] = "[ADMIN]",
+    [2241675937] = "[ADMIN]",
+    [1115590282] = "[ADMIN]",
+    [386141208] = "[ADMIN]",
+    [301447922] = "[ADMIN]",
+    [9221310778] = "[ADMIN]",
+    [2836808851] = "[ADMIN]",
+    [432780325] = "[ADMIN]",
 }
 
 -- === HELPERS ===
 local function getSpecialTag(player)
     return SPECIAL_TAGS[player.UserId] or ""
+end
+
+local function isAdmin(player)
+    return player and ADMIN_USERIDS[player.UserId] == true
 end
 
 local function getDisplayName(player)
@@ -165,7 +265,7 @@ local function updateNotifPositions()
 end
 
 -- outlineColor (5th arg) overrides the type-based color when provided
--- force (6th arg) bypasses the NotificationsEnabled toggle (used for F1 check)
+-- force (6th arg) bypasses the NotificationsEnabled toggle (used for manual staff checks)
 -- fitLines (7th arg) gives a notification enough height for every explicit line.
 local function notify(title, text, duration, type, outlineColor, force, fitLines)
     if not config.NotificationsEnabled and not force then return end
@@ -235,6 +335,176 @@ local function notify(title, text, duration, type, outlineColor, force, fitLines
     end)
 end
 
+-- === PERSISTENT SETTINGS ===
+-- File APIs are preferred when the executor exposes them. getgenv provides a
+-- session fallback so settings still remain stable after the menu is rebuilt.
+local SETTINGS_FILE = "VF_StaffAlert_Settings.txt"
+local settingsEnv = {}
+pcall(function()
+    settingsEnv = type(getgenv) == "function" and getgenv() or _G
+end)
+if type(settingsEnv) ~= "table" then settingsEnv = {} end
+
+local function encodeSetting(value)
+    if value == nil then return "" end
+    if type(value) == "boolean" then return value and "true" or "false" end
+    return tostring(value)
+end
+
+local function decodeSetting(raw, default)
+    if raw == nil or raw == "" then return default end
+    if type(default) == "boolean" then
+        return tostring(raw):lower() == "true"
+    elseif type(default) == "number" then
+        return tonumber(raw) or default
+    end
+    return raw
+end
+
+local function loadSetting(name, default)
+    local value = settingsEnv[name]
+    if value ~= nil then return decodeSetting(value, default) end
+    if type(isfile) == "function" and type(readfile) == "function" then
+        local ok, raw = pcall(function()
+            if not isfile(SETTINGS_FILE) then return nil end
+            local contents = readfile(SETTINGS_FILE)
+            for line in string.gmatch(contents, "[^\r\n]+") do
+                local key, stored = line:match("^([^=]+)=(.*)$")
+                if key == name then return stored end
+            end
+            return nil
+        end)
+        if ok and raw ~= nil then return decodeSetting(raw, default) end
+    end
+    return default
+end
+
+local function saveSetting(name, value)
+    settingsEnv[name] = encodeSetting(value)
+    if type(writefile) ~= "function" then return true end
+
+    local values = {}
+    if type(isfile) == "function" and type(readfile) == "function" then
+        pcall(function()
+            if isfile(SETTINGS_FILE) then
+                for line in string.gmatch(readfile(SETTINGS_FILE), "[^\r\n]+") do
+                    local key, stored = line:match("^([^=]+)=(.*)$")
+                    if key and key ~= name then values[key] = stored end
+                end
+            end
+        end)
+    end
+    values[name] = encodeSetting(value)
+
+    local lines = {}
+    for key, stored in pairs(values) do
+        table.insert(lines, key .. "=" .. stored)
+    end
+    table.sort(lines)
+    local ok = pcall(function() writefile(SETTINGS_FILE, table.concat(lines, "\n")) end)
+    return ok
+end
+
+local function saveSettingWithNotice(name, value, title)
+    if not saveSetting(name, value) then
+        notify(title or "SETTINGS", "Could not save this setting.", 3, "warning")
+        return false
+    end
+    return true
+end
+
+local function decodeUserIdSet(raw)
+    local result = {}
+    for value in string.gmatch(tostring(raw or ""), "%d+") do
+        result[tonumber(value)] = true
+    end
+    return result
+end
+
+local function encodeUserIdSet(ids)
+    local values = {}
+    for userId, selected in pairs(ids or {}) do
+        if selected then table.insert(values, tostring(userId)) end
+    end
+    table.sort(values)
+    return table.concat(values, ",")
+end
+
+local function decodePartSet(raw, defaults)
+    local result = {}
+    for _, partName in ipairs(AIM_PART_ORDER or {}) do
+        result[partName] = false
+    end
+    for partName in string.gmatch(tostring(raw or ""), "[^,]+") do
+        result[partName] = true
+    end
+    local hasPart = false
+    for _, selected in pairs(result) do
+        if selected then hasPart = true break end
+    end
+    if not hasPart then
+        for partName, selected in pairs(defaults or {}) do
+            result[partName] = selected
+        end
+    end
+    return result
+end
+
+local function encodePartSet(parts)
+    local values = {}
+    for _, partName in ipairs({"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso"}) do
+        if parts[partName] then table.insert(values, partName) end
+    end
+    return table.concat(values, ",")
+end
+
+-- Settings are opt-in per submenu. Feature enable states and resolver states
+-- intentionally remain session-only and always start disabled.
+config.StaffSaveSettings = loadSetting("StaffSaveSettings", false)
+config.TargetSaveSettings = loadSetting("TargetSaveSettings", false)
+config.Aim.SaveSettings = loadSetting("AimSaveSettings", false)
+config.AutoKill.SaveSettings = loadSetting("AutoKillSaveSettings", false)
+
+if config.TargetSaveSettings then
+    config.AutoArmorNotifications = loadSetting("AutoArmorNotifications", config.AutoArmorNotifications)
+end
+if config.StaffSaveSettings then
+    config.StaffESPEnabled = loadSetting("StaffESPEnabled", config.StaffESPEnabled)
+    config.NotificationsEnabled = loadSetting("NotificationsEnabled", config.NotificationsEnabled)
+    config.SoundsEnabled = loadSetting("SoundsEnabled", config.SoundsEnabled)
+    config.AutoKickEnabled = loadSetting("AutoKickEnabled", config.AutoKickEnabled)
+end
+if config.AutoKill.SaveSettings then
+    config.AutoKill.Prediction = loadSetting("AutoKillPrediction", 0)
+    config.AutoKill.SilentPrediction = loadSetting("AutoKillSilentPrediction", 0)
+    config.AutoKill.SavedTargets = loadSetting("AutoKillTargets", "")
+end
+if config.Aim.SaveSettings then
+    config.Aim.CameraFOV = loadSetting("CameraFOV", config.Aim.CameraFOV)
+    config.Aim.SilentFOV = loadSetting("SilentFOV", config.Aim.SilentFOV)
+    config.Aim.TargetAimPrediction.X = loadSetting("TargetAimPredX", config.Aim.TargetAimPrediction.X)
+    config.Aim.TargetAimPrediction.Y = loadSetting("TargetAimPredY", config.Aim.TargetAimPrediction.Y)
+    config.Aim.TargetAimPrediction.Z = loadSetting("TargetAimPredZ", config.Aim.TargetAimPrediction.Z)
+    config.Aim.SilentPrediction.X = loadSetting("SilentPredX", config.Aim.SilentPrediction.X)
+    config.Aim.SilentPrediction.Y = loadSetting("SilentPredY", config.Aim.SilentPrediction.Y)
+    config.Aim.SilentPrediction.Z = loadSetting("SilentPredZ", config.Aim.SilentPrediction.Z)
+    config.Aim.CameraPrediction.X = loadSetting("CameraPredX", config.Aim.CameraPrediction.X)
+    config.Aim.CameraPrediction.Y = loadSetting("CameraPredY", config.Aim.CameraPrediction.Y)
+    config.Aim.CameraPrediction.Z = loadSetting("CameraPredZ", config.Aim.CameraPrediction.Z)
+    config.Aim.TargetAimParts = decodePartSet(
+        loadSetting("AimTargetParts", ""),
+        config.Aim.TargetAimParts
+    )
+    config.Aim.CameraParts = decodePartSet(
+        loadSetting("AimCameraParts", ""),
+        config.Aim.CameraParts
+    )
+    config.Aim.SilentParts = decodePartSet(
+        loadSetting("AimSilentParts", ""),
+        config.Aim.SilentParts
+    )
+end
+
 -- === STAFF LOGIC ===
 local function playSound(id, vol)
     if not config.SoundsEnabled then return end
@@ -287,9 +557,17 @@ local function buildNotif(player, action, mains, possible)
     local dn = getDisplayName(player)
     local un = player.Name
     mains = mains or {}
+    possible = possible or {}
     local inMain = #mains > 0
     local inPossible = #possible > 0
     local title, body, color
+
+    if isAdmin(player) then
+        color = theme.Admin
+        title = "ADMIN • " .. dn
+        body = dn .. " (@" .. un .. ") • Admin — " .. action
+        return title, body, color
+    end
 
     if inMain and inPossible then
         -- Green (main has priority)
@@ -345,11 +623,72 @@ state.PossibleESPFolder.Name = "PossibleStaffESP"
 
 -- Priority: Main > Undercover > Possible
 -- Returns "main", "undercover", or "possible" (or nil if none)
-local function getPlayerCategory(inMain, isU, inPossible)
+local function getPlayerCategory(inMain, isU, inPossible, isA)
+    if isA then return "admin" end
     if inMain then return "main" end
     if isU    then return "undercover" end
     if inPossible then return "possible" end
     return nil
+end
+
+local autoKickTriggered = false
+
+local function getAutoKickRole(player)
+    if not player or player == localPlayer then return nil end
+    if isAdmin(player) then
+        return "admin"
+    end
+
+    local mains = getMainMemberships(player)
+    local inMain = #mains > 0
+    if inMain then
+        return "staff"
+    end
+
+    -- Possible-staff membership is intentionally not enough to trigger this.
+    if isUndercover(player, false) then
+        return "undercover"
+    end
+    return nil
+end
+
+local function autoKickPlayerIfNeeded(player)
+    if not config.AutoKickEnabled
+        or autoKickTriggered
+        or not player
+        or player == localPlayer
+        or not player.Parent then
+        return false
+    end
+
+    local role = getAutoKickRole(player)
+    if not role then return false end
+
+    autoKickTriggered = true
+    local roleLabel = role == "admin"
+        and "Admin"
+        or (role == "undercover" and "undercover staff" or "staff")
+    notify(
+        "AUTO KICK",
+        roleLabel .. " detected: " .. getDisplayName(player) .. "\nLeaving this server.",
+        4,
+        "warning",
+        role == "admin" and theme.Admin or nil,
+        true
+    )
+
+    task.delay(0.25, function()
+        pcall(function()
+            localPlayer:Kick("Auto Kick: " .. roleLabel .. " joined the server.")
+        end)
+    end)
+    return true
+end
+
+local function checkExistingPlayersForAutoKick()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if autoKickPlayerIfNeeded(player) then break end
+    end
 end
 
 local function applyESP(player)
@@ -376,16 +715,24 @@ local function applyESP(player)
     local inMain     = #mains > 0
     local inPossible = #possible > 0
     local isU        = isUndercover(player, inMain)
-    local category   = getPlayerCategory(inMain, isU, inPossible)
+    local isA        = isAdmin(player)
+    local category   = getPlayerCategory(inMain, isU, inPossible, isA)
 
     if not category then return end
 
     local function attach(char)
         if not char then return end
         local key, folder, fillClr, outlineClr
-        if category == "main" then
+        if category == "admin" then
+            key    = "AHL_"  .. player.UserId
+            folder = state.StaffESPFolder
+            fillClr    = theme.Admin
+            outlineClr = theme.Admin
+        elseif category == "main" then
             key    = "HL_"  .. player.UserId
             folder = state.StaffESPFolder
+            fillClr    = theme.Success
+            outlineClr = theme.Success
         elseif category == "undercover" then
             key    = "UHL_" .. player.UserId
             folder = state.UndercoverESPFolder
@@ -410,7 +757,11 @@ local function applyESP(player)
         if outlineClr then hl.OutlineColor = outlineClr end
     end
 
-    if category == "main" then
+    if category == "admin" then
+        local title, body, color = buildNotif(player, "joined", mains, possible)
+        notify(title, body, 5, nil, color)
+        playSound("rbxassetid://8887499160", 2)
+    elseif category == "main" then
         local title, body, color = buildNotif(player, "joined", mains, possible)
         notify(title, body, 5, nil, color)
         playSound("rbxassetid://8887499160", 2)
@@ -442,12 +793,18 @@ local function onPlayerRemoving(player)
     local inMain     = #mains > 0
     local inPossible = #possible > 0
     local isU        = isUndercover(player, inMain)
-    local category   = getPlayerCategory(inMain, isU, inPossible)
+    local isA        = isAdmin(player)
+    local category   = getPlayerCategory(inMain, isU, inPossible, isA)
 
     if not category then return end
     playSound("rbxassetid://1091083826", 2)
 
-    if category == "main" then
+    if category == "admin" then
+        local title, body, color = buildNotif(player, "left", mains, possible)
+        notify(title, body, 5, nil, color)
+        local hl = state.StaffESPFolder:FindFirstChild("AHL_" .. player.UserId)
+        if hl then hl:Destroy() end
+    elseif category == "main" then
         local title, body, color = buildNotif(player, "left", mains, possible)
         notify(title, body, 5, nil, color)
         local hl = state.StaffESPFolder:FindFirstChild("HL_" .. player.UserId)
@@ -473,23 +830,8 @@ local function onPlayerRemoving(player)
     end
 end
 
--- Rainbow ESP: Heartbeat-driven for smooth, flicker-free colour cycling.
--- Hue is derived from elapsed wall-clock time so the animation stays
--- perfectly smooth regardless of frame rate or task-scheduler jitter.
-local RAINBOW_SPEED = 0.4  -- full colour cycle per second (raise = faster)
-do
-    local _rainbowStart = tick()
-    RunService.Heartbeat:Connect(function()
-        local hue = (tick() - _rainbowStart) * RAINBOW_SPEED % 1
-        local color = Color3.fromHSV(hue, 1, 1)
-        for _, obj in ipairs(state.StaffESPFolder:GetChildren()) do
-            if obj:IsA("Highlight") then
-                obj.FillColor    = color
-                obj.OutlineColor = color
-            end
-        end
-    end)
-end
+-- Main-group staff ESP stays a stable green so the category is immediately
+-- recognizable. Undercover and possible-staff colours remain unchanged.
 
 -- === UI IMPLEMENTATION ===
 local sg = Instance.new("ScreenGui", CoreGui.RobloxGui)
@@ -498,15 +840,24 @@ sg.ResetOnSpawn = false
 
 local main = Instance.new("Frame", sg)
 main.Name = ids.main
+main.Visible = false
 main.BackgroundColor3 = theme.BackgroundPrimary
-main.Position = UDim2.new(0.5, -250, 0.5, -200)
-main.Size = UDim2.new(0, 500, 0, 400)
+main.Position = UDim2.new(0.5, -370, 0.5, -340)
+main.Size = UDim2.new(0, 740, 0, 680)
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 16)
 local mainStroke = Instance.new("UIStroke", main)
 mainStroke.Color = theme.AccentPrimary
 mainStroke.Thickness = 3
 mainStroke.Transparency = 0.2
 addGlow(main, theme.AccentPrimary, 0.7)
+task.spawn(function()
+    while main.Parent do
+        tween(mainStroke, {Transparency = 0.05}, 1.8, Enum.EasingStyle.Sine)
+        task.wait(1.8)
+        tween(mainStroke, {Transparency = 0.32}, 1.8, Enum.EasingStyle.Sine)
+        task.wait(1.8)
+    end
+end)
 
 -- Topbar
 local topbar = Instance.new("Frame", main)
@@ -580,15 +931,37 @@ sideTitleGradient.Offset = Vector2.new(-1, 0)
 local topAnnouncement = Instance.new("TextLabel", topbar)
 topAnnouncement.BackgroundTransparency = 1
 topAnnouncement.Position = UDim2.new(0, 170, 0, 0)
-topAnnouncement.Size = UDim2.new(1, -130, 1, 0)
+topAnnouncement.Size = UDim2.new(1, -290, 1, 0)
 topAnnouncement.Font = Enum.Font.GothamBold
 --xx Updated:                                                          --
-topAnnouncement.Text = "Updated: 05/09/2026 | Up to date"
+topAnnouncement.Text = "PREMIUM BUILD  •  Updated: 07/09/2026"
 topAnnouncement.TextColor3 = theme.TextSecondary
 topAnnouncement.TextSize = 17
 topAnnouncement.TextXAlignment = Enum.TextXAlignment.Left
 topAnnouncement.TextYAlignment = Enum.TextYAlignment.Center
 topAnnouncement.ZIndex = 6
+
+state.EditionBadge = Instance.new("TextLabel", topbar)
+state.EditionBadge.BackgroundColor3 = localPlayer.UserId == 2309457259
+    and Color3.fromRGB(255, 190, 35)
+    or (isAdmin(localPlayer) and Color3.fromRGB(220, 55, 75) or Color3.fromRGB(255, 190, 35))
+state.EditionBadge.BackgroundTransparency = 0.08
+state.EditionBadge.Position = UDim2.new(1, -116, 0, 13)
+state.EditionBadge.Size = UDim2.new(0, 101, 0, 29)
+state.EditionBadge.Font = Enum.Font.GothamBold
+state.EditionBadge.Text = localPlayer.UserId == 2309457259
+    and "OWNER"
+    or (isAdmin(localPlayer) and "ADMIN" or "PREMIUM")
+state.EditionBadge.TextColor3 = isAdmin(localPlayer)
+    and Color3.fromRGB(255, 240, 245)
+    or Color3.fromRGB(30, 22, 5)
+state.EditionBadge.TextSize = 11
+state.EditionBadge.ZIndex = 8
+Instance.new("UICorner", state.EditionBadge).CornerRadius = UDim.new(1, 0)
+state.EditionBadgeStroke = Instance.new("UIStroke", state.EditionBadge)
+state.EditionBadgeStroke.Color = Color3.fromRGB(255, 245, 160)
+state.EditionBadgeStroke.Thickness = 1
+state.EditionBadgeStroke.Transparency = 0.15
 
 local topbarGlint = Instance.new("Frame", topbar)
 topbarGlint.BackgroundColor3 = Color3.fromRGB(115, 235, 255)
@@ -633,10 +1006,34 @@ nav.BackgroundTransparency = 1
 nav.Position = UDim2.new(0, 0, 0, 10)
 nav.Size = UDim2.new(1, 0, 1, -10)
 
+state.SidebarFooterLine = Instance.new("Frame", sidebar)
+state.SidebarFooterLine.BackgroundColor3 = Color3.fromRGB(255, 195, 45)
+state.SidebarFooterLine.BackgroundTransparency = 0.65
+state.SidebarFooterLine.BorderSizePixel = 0
+state.SidebarFooterLine.Position = UDim2.new(0, 14, 1, -42)
+state.SidebarFooterLine.Size = UDim2.new(1, -28, 0, 1)
+
+state.SidebarFooter = Instance.new("TextLabel", sidebar)
+state.SidebarFooter.BackgroundTransparency = 1
+state.SidebarFooter.Position = UDim2.new(0, 14, 1, -35)
+state.SidebarFooter.Size = UDim2.new(1, -28, 0, 24)
+state.SidebarFooter.Font = Enum.Font.GothamBold
+state.SidebarFooter.Text = "◆  PREMIUM ACCESS"
+state.SidebarFooter.TextColor3 = Color3.fromRGB(255, 210, 65)
+state.SidebarFooter.TextSize = 10
+state.SidebarFooter.TextXAlignment = Enum.TextXAlignment.Center
+
 local pages = Instance.new("Frame", main)
 pages.BackgroundTransparency = 1
 pages.Position = UDim2.new(0, 150, 0, 55)
 pages.Size = UDim2.new(1, -150, 1, -55)
+
+local sidebarDivider = Instance.new("Frame", main)
+sidebarDivider.BackgroundColor3 = theme.AccentSecondary
+sidebarDivider.BackgroundTransparency = 0.15
+sidebarDivider.BorderSizePixel = 0
+sidebarDivider.Position = UDim2.new(0, 149, 0, 55)
+sidebarDivider.Size = UDim2.new(0, 2, 1, -55)
 
 local function createPage(name)
     local p = Instance.new("ScrollingFrame", pages)
@@ -650,9 +1047,61 @@ local function createPage(name)
     return p
 end
 
+local profilePage    = createPage("Profile")
 local staffPage      = createPage("Staff")
 local infoPage       = createPage("Information")
 local targetPage     = createPage("Target")
+local aimPage        = createPage("Aim")
+aimPage.ScrollBarThickness = 3
+aimPage.ScrollBarImageColor3 = theme.AccentSecondary
+local autoKill = {
+    Config = config.AutoKill,
+    Target = nil,
+    SelectedTargets = {},
+    SelectedUserIds = decodeUserIdSet(config.AutoKill.SavedTargets),
+    LeavingUserIds = {},
+    TargetOrder = {},
+    TargetIndex = 0,
+    FirePosition = nil,
+    TargetReadyAt = 0,
+    NextShot = 0,
+    WasActive = false,
+    WasKnocked = false,
+    Reloading = false,
+    LastAmmo = nil,
+    LastTool = nil,
+    SeenAmmo = false,
+    ReloadCooldown = 0,
+    ToolGrips = {},
+    UI = {},
+    FireLoopId = 0,
+    FireLoopRunning = false,
+    SilentFirePosition = nil,
+    RespawnGraceUntil = 0,
+    RespawnCharacter = nil,
+    RespawnHiddenParts = {},
+    CharacterCFrameBeforeAutoKill = nil,
+    CameraSubjectBeforeAutoKill = nil,
+    PredictionVector = { X = 0, Y = 0, Z = 0 },
+}
+
+local function saveAutoKillTargetSelection()
+    if not autoKill.Config.SaveSettings then return end
+    saveSettingWithNotice(
+        "AutoKillTargets",
+        encodeUserIdSet(autoKill.SelectedUserIds),
+        "AUTO KILL"
+    )
+end
+autoKill.UI.Page = createPage("Auto Kill")
+autoKill.UI.Page.ScrollBarThickness = 3
+autoKill.UI.Page.ScrollBarImageColor3 = theme.AccentSecondary
+-- These are forward-declared because the Enable toggle is created before the
+-- overlay itself. Without this, the callback resolves a global nil instead
+-- of the local UI objects.
+local autoKillListFrame
+local persistentListFrame
+local autoKillRefreshPlayerList
 -- Staff List page: ScrollingFrame so the whole page scrolls like the other submenus.
 -- Each section also has its OWN inner ScrollingFrame for per-category scrolling.
 local staffListPage  = Instance.new("ScrollingFrame", pages)
@@ -667,19 +1116,22 @@ staffListPage.ScrollingDirection = Enum.ScrollingDirection.Y
 staffListPage.AutomaticCanvasSize = Enum.AutomaticSize.Y
 staffListPage.Visible  = false
 
-local currentPage = infoPage   -- opens on Info / Updates by default
+local flingPage = createPage("Fling")
+
+local currentPage = profilePage   -- opens on the account page by default
 currentPage.Visible = true
 
 local function navBtn(name, page, y)
     local b = Instance.new("TextButton", nav)
     b.BackgroundColor3 = theme.BackgroundTertiary
-    b.BackgroundTransparency = 0.8
+    b.BackgroundTransparency = page == currentPage and 0.42 or 0.8
     b.Position = UDim2.new(0, 10, 0, y)
     b.Size = UDim2.new(1, -20, 0, 35)
     b.Font = Enum.Font.GothamMedium
     b.Text = name
     b.TextColor3 = theme.TextSecondary
     b.TextSize = 12
+    b.AutoButtonColor = false
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
 
     local s = Instance.new("UIStroke", b)
@@ -687,27 +1139,52 @@ local function navBtn(name, page, y)
     s.Thickness = 1
     s.Enabled = (page == currentPage)
 
+    local activeBar = Instance.new("Frame", b)
+    activeBar.Name = "NavActiveBar"
+    activeBar.BackgroundColor3 = theme.AccentPrimary
+    activeBar.BorderSizePixel = 0
+    activeBar.Position = UDim2.new(0, 0, 0.5, -9)
+    activeBar.Size = UDim2.new(0, 3, 0, 18)
+    activeBar.Visible = page == currentPage
+    Instance.new("UICorner", activeBar).CornerRadius = UDim.new(1, 0)
+
     b.MouseButton1Click:Connect(function()
+        tween(b, {BackgroundTransparency = 0.28}, 0.08, Enum.EasingStyle.Quad)
         currentPage.Visible = false
         for _, child in ipairs(nav:GetChildren()) do
             if child:IsA("TextButton") then
                 child:FindFirstChildOfClass("UIStroke").Enabled = false
+                local childBar = child:FindFirstChild("NavActiveBar")
+                if childBar then childBar.Visible = false end
             end
         end
         currentPage = page
         currentPage.Visible = true
         s.Enabled = true
+        activeBar.Visible = true
+        task.delay(0.12, function()
+            if b.Parent then
+                tween(b, {BackgroundTransparency = 0.48}, 0.18, Enum.EasingStyle.Quad)
+            end
+        end)
+    end)
+    b.MouseEnter:Connect(function()
+        tween(b, {BackgroundTransparency = 0.48}, 0.15, Enum.EasingStyle.Quad)
+    end)
+    b.MouseLeave:Connect(function()
+        tween(b, {BackgroundTransparency = page == currentPage and 0.42 or 0.8}, 0.2, Enum.EasingStyle.Quad)
     end)
 end
 
 -- SUBMENU
-navBtn("Info / Updates", infoPage, 0)
-navBtn("Staff Alerts", staffPage, 45)
-navBtn("Staff List", staffListPage, 90)
-navBtn("Target / Extra", targetPage, 135)
-
-local flingPage = createPage("Fling")
-navBtn("Fling", flingPage, 180)
+navBtn("Profile", profilePage, 0)
+navBtn("Info / Updates", infoPage, 45)
+navBtn("Staff Alerts", staffPage, 90)
+navBtn("Staff List", staffListPage, 135)
+navBtn("Aim", aimPage, 180)
+navBtn("Target / Extra", targetPage, 225)
+navBtn("Fling", flingPage, 270)
+navBtn("Auto Kill", autoKill.UI.Page, 315)
 
 local function createButton(name, desc, yPos, callback, parent)
     local f = Instance.new("Frame", parent or staffPage)
@@ -765,9 +1242,17 @@ local function createButton(name, desc, yPos, callback, parent)
         tween(bg, {BackgroundColor3 = theme.BackgroundTertiary}, 0.1)
         callback()
     end)
+    click.MouseEnter:Connect(function()
+        tween(s, {Transparency = 0.15}, 0.15)
+        tween(bg, {BackgroundColor3 = theme.AccentSecondary}, 0.15)
+    end)
+    click.MouseLeave:Connect(function()
+        tween(s, {Transparency = 0.5}, 0.2)
+        tween(bg, {BackgroundColor3 = theme.BackgroundTertiary}, 0.2)
+    end)
 end
 
-local function createToggle(name, desc, yPos, initialValue, callback, parent)
+local function createToggle(name, desc, yPos, initialValue, callback, parent, onColor, offColor)
     local f = Instance.new("Frame", parent or staffPage)
     f.BackgroundColor3 = theme.BackgroundSecondary
     f.Position = UDim2.new(0, 0, 0, yPos)
@@ -798,39 +1283,1549 @@ local function createToggle(name, desc, yPos, initialValue, callback, parent)
     dl.TextSize = 12
     dl.TextXAlignment = Enum.TextXAlignment.Left
 
-    local bg = Instance.new("Frame", f)
-    bg.BackgroundColor3 = initialValue and theme.AccentPrimary or theme.BackgroundTertiary
-    bg.Position = UDim2.new(1, -62, 0.5, -14)
-    bg.Size = UDim2.new(0, 52, 0, 28)
-    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+    local enabledColor = onColor or theme.AccentPrimary
+    local disabledColor = offColor or theme.BackgroundTertiary
 
-    local btn = Instance.new("Frame", bg)
-    btn.BackgroundColor3 = theme.TextPrimary
-    btn.Position = initialValue and UDim2.new(1, -25, 0.5, -11) or UDim2.new(0, 3, 0.5, -11)
-    btn.Size = UDim2.new(0, 22, 0, 22)
-    Instance.new("UICorner", btn).CornerRadius = UDim.new(1, 0)
-    addGlow(btn, theme.TextPrimary, 0.6)
+    local box = Instance.new("Frame", f)
+    box.BackgroundColor3 = initialValue and enabledColor or disabledColor
+    box.Position = UDim2.new(1, -48, 0.5, -14)
+    box.Size = UDim2.new(0, 28, 0, 28)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 7)
+
+    local check = Instance.new("TextLabel", box)
+    check.BackgroundTransparency = 1
+    check.Size = UDim2.new(1, 0, 1, 0)
+    check.Font = Enum.Font.GothamBold
+    check.Text = initialValue and "✓" or ""
+    check.TextColor3 = theme.TextPrimary
+    check.TextSize = 19
 
     local val = initialValue
+    local control = {}
+    local function render(value)
+        val = value
+        check.Text = value and "✓" or ""
+        tween(box, {BackgroundColor3 = value and enabledColor or disabledColor}, 0.2)
+        tween(s, {Transparency = value and 0.2 or 0.8}, 0.3)
+    end
+    function control.SetValue(value, invokeCallback)
+        render(value)
+        if invokeCallback then callback(value) end
+    end
+    function control.GetValue()
+        return val
+    end
+
     local click = Instance.new("TextButton", f)
     click.BackgroundTransparency = 1
     click.Size = UDim2.new(1, 0, 1, 0)
     click.Text = ""
 
     click.MouseButton1Click:Connect(function()
-        val = not val
-        callback(val)
-        if val then
-            tween(btn, {Position = UDim2.new(1, -25, 0.5, -11)}, 0.3, Enum.EasingStyle.Back)
-            tween(bg, {BackgroundColor3 = theme.AccentPrimary}, 0.3)
-            tween(s, {Transparency = 0.2}, 0.3)
+        control.SetValue(not val, true)
+    end)
+    click.MouseEnter:Connect(function()
+        tween(s, {Transparency = 0.08}, 0.15)
+        tween(f, {BackgroundColor3 = Color3.fromRGB(30, 36, 58)}, 0.15)
+    end)
+    click.MouseLeave:Connect(function()
+        tween(s, {Transparency = val and 0.2 or 0.8}, 0.2)
+        tween(f, {BackgroundColor3 = theme.BackgroundSecondary}, 0.2)
+    end)
+    return control
+end
+
+local function createSectionHeader(parent, text, yPos, color)
+    local holder = Instance.new("Frame", parent)
+    holder.BackgroundTransparency = 1
+    holder.Position = UDim2.new(0, 0, 0, yPos)
+    holder.Size = UDim2.new(1, 0, 0, 24)
+
+    local label = Instance.new("TextLabel", holder)
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(0, 170, 1, 0)
+    label.Font = Enum.Font.GothamBold
+    label.Text = text
+    label.TextColor3 = color or theme.AccentSecondary
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local line = Instance.new("Frame", holder)
+    line.BackgroundColor3 = color or theme.AccentSecondary
+    line.BackgroundTransparency = 0.55
+    line.BorderSizePixel = 0
+    line.Position = UDim2.new(0, 176, 0.5, 0)
+    line.Size = UDim2.new(1, -176, 0, 1)
+    return holder
+end
+
+local function createKeybindControl(name, desc, yPos, initialKey, callback, parent, validateKey)
+    local f = Instance.new("Frame", parent or staffPage)
+    f.BackgroundColor3 = theme.BackgroundSecondary
+    f.ClipsDescendants = true
+    f.Position = UDim2.new(0, 0, 0, yPos)
+    f.Size = UDim2.new(1, 0, 0, 55)
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    local s = Instance.new("UIStroke", f)
+    s.Color = theme.AccentSecondary
+    s.Thickness = 2
+    s.Transparency = initialKey and 0.2 or 0.8
+
+    local tl = Instance.new("TextLabel", f)
+    tl.BackgroundTransparency = 1
+    tl.Position = UDim2.new(0, 14, 0, 8)
+    tl.Size = UDim2.new(1, -116, 0, 18)
+    tl.Font = Enum.Font.GothamBold
+    tl.Text = name
+    tl.TextTruncate = Enum.TextTruncate.AtEnd
+    tl.TextColor3 = theme.TextPrimary
+    tl.TextSize = 13
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local dl = Instance.new("TextLabel", f)
+    dl.BackgroundTransparency = 1
+    dl.Position = UDim2.new(0, 14, 0, 28)
+    dl.Size = UDim2.new(1, -116, 0, 20)
+    dl.Font = Enum.Font.Gotham
+    dl.Text = desc
+    dl.TextTruncate = Enum.TextTruncate.AtEnd
+    dl.TextColor3 = theme.TextSecondary
+    dl.TextSize = 11
+    dl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local keyButton = Instance.new("TextButton", f)
+    keyButton.BackgroundColor3 = initialKey and theme.AccentPrimary or theme.BackgroundTertiary
+    keyButton.Position = UDim2.new(1, -96, 0.5, -15)
+    keyButton.Size = UDim2.new(0, 82, 0, 30)
+    keyButton.Font = Enum.Font.GothamBold
+    keyButton.Text = initialKey and initialKey.Name or "UNBOUND"
+    keyButton.TextColor3 = theme.TextPrimary
+    keyButton.TextSize = 10
+    keyButton.AutoButtonColor = false
+    Instance.new("UICorner", keyButton).CornerRadius = UDim.new(0, 8)
+
+    local listening = false
+    local previousText = keyButton.Text
+    local function unbind()
+        if not listening then return end
+        listening = false
+        state.KeybindCapture = false
+        if state.CancelKeybindCapture then state.CancelKeybindCapture = nil end
+        initialKey = nil
+        keyButton.Text = "UNBOUND"
+        keyButton.BackgroundColor3 = theme.BackgroundTertiary
+        tween(s, {Transparency = 0.8}, 0.2)
+        callback(nil)
+    end
+
+    keyButton.MouseButton1Click:Connect(function()
+        if listening then
+            unbind()
+            return
+        end
+        if state.CancelKeybindCapture then state.CancelKeybindCapture() end
+        listening = true
+        state.KeybindCapture = true
+        state.CancelKeybindCapture = unbind
+        previousText = keyButton.Text
+        keyButton.Text = "PRESS KEY"
+        keyButton.BackgroundColor3 = theme.AccentSecondary
+    end)
+
+    UserInputService.InputBegan:Connect(function(input)
+        if not listening or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+        if input.KeyCode == Enum.KeyCode.Escape then
+            listening = false
+            state.KeybindCapture = false
+            if state.CancelKeybindCapture == unbind then state.CancelKeybindCapture = nil end
+            keyButton.Text = previousText
+            keyButton.BackgroundColor3 = initialKey and theme.AccentPrimary or theme.BackgroundTertiary
+            return
+        end
+
+        if input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Delete then
+            unbind()
+            return
+        end
+
+        if input.KeyCode == Enum.KeyCode.Unknown then return end
+        if validateKey then
+            local allowed, reason = validateKey(input.KeyCode)
+            if allowed == false then
+                keyButton.Text = "KEY IN USE"
+                notify("KEYBIND", reason or "That key is already assigned", 3, "warning")
+                task.delay(0.8, function()
+                    if listening and keyButton.Parent then
+                        keyButton.Text = "PRESS A KEY"
+                    end
+                end)
+                return
+            end
+        end
+        listening = false
+        state.KeybindCapture = false
+        if state.CancelKeybindCapture == unbind then state.CancelKeybindCapture = nil end
+        initialKey = input.KeyCode
+        keyButton.Text = input.KeyCode.Name
+        keyButton.BackgroundColor3 = theme.AccentPrimary
+        tween(s, {Transparency = 0.2}, 0.2)
+        callback(input.KeyCode)
+    end)
+    return unbind
+end
+
+-- Any left click outside the active key button cancels capture and unbinds it.
+-- The defer lets the button's own MouseButton1Click handler run first.
+UserInputService.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        and state.KeybindCapture
+        and state.CancelKeybindCapture then
+        task.defer(function()
+            if state.KeybindCapture and state.CancelKeybindCapture then
+                state.CancelKeybindCapture()
+            end
+        end)
+    end
+end)
+
+local function createNumberInput(name, desc, yPos, initialValue, minValue, maxValue, callback, parent)
+    local f = Instance.new("Frame", parent or staffPage)
+    f.BackgroundColor3 = theme.BackgroundSecondary
+    f.Position = UDim2.new(0, 0, 0, yPos)
+    f.Size = UDim2.new(1, 0, 0, 55)
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    local s = Instance.new("UIStroke", f)
+    s.Color = theme.AccentSecondary
+    s.Thickness = 2
+    s.Transparency = 0.2
+
+    local tl = Instance.new("TextLabel", f)
+    tl.BackgroundTransparency = 1
+    tl.Position = UDim2.new(0, 14, 0, 8)
+    tl.Size = UDim2.new(1, -116, 0, 18)
+    tl.Font = Enum.Font.GothamBold
+    tl.Text = name
+    tl.TextColor3 = theme.TextPrimary
+    tl.TextSize = 13
+    tl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local dl = Instance.new("TextLabel", f)
+    dl.BackgroundTransparency = 1
+    dl.Position = UDim2.new(0, 14, 0, 28)
+    dl.Size = UDim2.new(1, -116, 0, 20)
+    dl.Font = Enum.Font.Gotham
+    dl.Text = desc
+    dl.TextColor3 = theme.TextSecondary
+    dl.TextSize = 11
+    dl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local box = Instance.new("TextBox", f)
+    box.BackgroundColor3 = theme.BackgroundTertiary
+    box.Position = UDim2.new(1, -96, 0.5, -15)
+    box.Size = UDim2.new(0, 82, 0, 30)
+    box.Font = Enum.Font.GothamBold
+    box.Text = tostring(initialValue)
+    box.TextColor3 = theme.TextPrimary
+    box.TextSize = 11
+    box.ClearTextOnFocus = false
+    box.TextXAlignment = Enum.TextXAlignment.Center
+    box.PlaceholderText = tostring(initialValue)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+
+    local function commit()
+        local value = tonumber(box.Text)
+        if not value then
+            box.Text = tostring(initialValue)
+            return
+        end
+        value = math.clamp(value, minValue, maxValue)
+        box.Text = tostring(value)
+        initialValue = value
+        callback(value)
+    end
+
+    box:GetPropertyChangedSignal("Text"):Connect(function()
+        local value = tonumber(box.Text)
+        if value then
+            callback(math.clamp(value, minValue, maxValue))
+        end
+    end)
+    box.FocusLost:Connect(commit)
+end
+
+-- ======================================================== --
+--  AIM ENGINE
+--  This keeps Target Aim separate from the original Loomi-style
+--  Silent Aim, Camera Assistance, and independent Triggerbot behavior.
+-- ======================================================== --
+
+local aimConfig = config.Aim
+local aimMouse = localPlayer:GetMouse()
+local aimCamera = Workspace.CurrentCamera
+local aimVirtualInput = game:GetService("VirtualInputManager")
+local aimReplicatedStorage = game:GetService("ReplicatedStorage")
+local aimTarget = nil
+local aimTargeting = false
+local aimRmbHeld = false
+local aimTriggerActive = false
+local aimLastClick = 0
+local aimTriggerDelay = aimConfig.TriggerEnd
+local aimToolConnections = {}
+local aimCameraTarget = nil
+local aimSilentTarget = nil
+local aimCameraHighlightTarget = nil
+local aimSilentHighlightTarget = nil
+local aimCameraCancelled = false
+local aimSilentCancelled = false
+local aimHighlightFolder = Instance.new("Folder", Workspace)
+aimHighlightFolder.Name = randomString(8)
+local aimHighlight = nil
+local aimHighlightTarget = nil
+local aimHighlightCharacter = nil
+local aimRainbowStart = tick()
+local aimRefreshHighlight
+local AIM_FOV_MAX = 100
+local aimRecoveryNotificationSuppressed = {}
+
+local AIM_PART_ORDER = { "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso" }
+local AIM_DOWNED_HUMANOID_STATES = {
+    [Enum.HumanoidStateType.FallingDown] = true,
+    [Enum.HumanoidStateType.Ragdoll] = true,
+    [Enum.HumanoidStateType.PlatformStanding] = true,
+    [Enum.HumanoidStateType.Physics] = true,
+    [Enum.HumanoidStateType.GettingUp] = true,
+}
+
+local function aimGetHumanoid(player)
+    local character = player and player.Character
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+local function aimIsKnocked(player)
+    local character = player and player.Character
+    local effects = character and character:FindFirstChild("BodyEffects")
+    if effects then
+        -- Different game versions expose this value as BoolValue, NumberValue,
+        -- or a string-like value. Treat all true/1/"true" forms as downed.
+        local ko = effects:FindFirstChild("K.O", true)
+            or effects:FindFirstChild("KO", true)
+            or effects:FindFirstChild("Knocked", true)
+            or effects:FindFirstChild("Downed", true)
+        if ko then
+            local ok, value = pcall(function() return ko.Value end)
+            if ok and (value == true or value == 1
+                or tostring(value):lower() == "true") then
+                return true
+            end
+        end
+    end
+
+    -- The downed animation/state is the fallback when the KO marker is
+    -- delayed or unavailable. GettingUp stays blocked until the Humanoid
+    -- returns to a normal movement state.
+    local humanoid = aimGetHumanoid(player)
+    return humanoid ~= nil
+        and (humanoid.PlatformStand or AIM_DOWNED_HUMANOID_STATES[humanoid:GetState()] == true)
+end
+
+local function aimTargetUsable(player, mode)
+    if not player or player == localPlayer or not player.Parent or not player.Character then
+        return false
+    end
+    -- Target Aim is an explicit lock and must remain locked through KO.
+    -- It intentionally does not validate KO, health, or Humanoid state.
+    if mode == "TargetAim" then
+        return true
+    end
+
+    local humanoid = aimGetHumanoid(player)
+    if not humanoid then
+        return false
+    end
+
+    -- Camera Assistance, Silent Aim, and Triggerbot must not acquire or fire at a
+    -- downed player. This uses Loomi's BodyEffects.K.O check plus the
+    -- Humanoid's downed/getting-up state, not a health threshold.
+    if humanoid:GetState() == Enum.HumanoidStateType.Dead then
+        return false
+    end
+    return not aimIsKnocked(player)
+end
+
+local function aimGetFOV(value)
+    return math.clamp(tonumber(value) or AIM_FOV_MAX, 1, AIM_FOV_MAX)
+end
+
+local aimFOVGui = Instance.new("ScreenGui", CoreGui.RobloxGui)
+aimFOVGui.Name = ids.gui .. "_FOV"
+aimFOVGui.ResetOnSpawn = false
+aimFOVGui.IgnoreGuiInset = true
+aimFOVGui.DisplayOrder = 19
+
+local aimFOVCircle = Instance.new("Frame", aimFOVGui)
+aimFOVCircle.BackgroundTransparency = 1
+aimFOVCircle.BorderSizePixel = 0
+aimFOVCircle.Visible = false
+aimFOVCircle.ZIndex = 50
+Instance.new("UICorner", aimFOVCircle).CornerRadius = UDim.new(1, 0)
+local aimFOVStroke = Instance.new("UIStroke", aimFOVCircle)
+aimFOVStroke.Color = theme.AccentPrimary
+aimFOVStroke.Thickness = 1
+aimFOVStroke.Transparency = 0.15
+
+local function aimUpdateFOVVisualization()
+    if autoKill.Config.Enabled or not aimConfig.ShowFOV then
+        aimFOVCircle.Visible = false
+        return
+    end
+
+    -- Use the exact configured FOV of the currently active camera/silent
+    -- mode; this only draws it and does not change target acquisition.
+    local fov = aimConfig.CameraEnabled
+        and aimGetFOV(aimConfig.CameraFOV)
+        or aimGetFOV(aimConfig.SilentFOV)
+    local mousePosition = UserInputService:GetMouseLocation()
+    aimFOVCircle.Size = UDim2.fromOffset(fov * 2, fov * 2)
+    aimFOVCircle.Position = UDim2.fromOffset(mousePosition.X - fov, mousePosition.Y - fov)
+    aimFOVCircle.Visible = true
+end
+
+local function aimPartsFor(mode)
+    if mode == "TargetAim" then return aimConfig.TargetAimParts end
+    if mode == "Camera" then return aimConfig.CameraParts end
+    return aimConfig.SilentParts
+end
+
+local function aimGetSelectedParts(player, mode)
+    local character = player and player.Character
+    local selected = aimPartsFor(mode)
+    local parts = {}
+    if not character then return parts end
+
+    for _, name in ipairs(AIM_PART_ORDER) do
+        if selected[name] then
+            local part = character:FindFirstChild(name)
+            if part and part:IsA("BasePart") then
+                table.insert(parts, part)
+            end
+        end
+    end
+    return parts
+end
+
+local function aimGetPart(player, mode, nearestToMouse, randomize)
+    local selectedParts = aimGetSelectedParts(player, mode)
+    if #selectedParts == 0 then return nil end
+
+    -- Multi-select hit parts are a pool, not a nearest-part preference.
+    -- Target selection may inspect the nearest part, but each actual shot
+    -- chooses a fresh random part from the user's selected pool.
+    if randomize then
+        return selectedParts[math.random(1, #selectedParts)]
+    end
+    if not nearestToMouse then return selectedParts[1] end
+
+    local mousePosition = UserInputService:GetMouseLocation()
+    local bestPart, bestDistance = nil, math.huge
+    for _, part in ipairs(selectedParts) do
+        local screenPosition, onScreen = aimCamera:WorldToViewportPoint(part.Position)
+        -- Target Aim is a direct C-selected lock and has no viewport/FOV
+        -- restriction. Other modes only consider visible on-screen parts.
+        if onScreen or mode == "TargetAim" then
+            local distance = (Vector2.new(screenPosition.X, screenPosition.Y)
+                - Vector2.new(mousePosition.X, mousePosition.Y)).Magnitude
+            if distance < bestDistance then
+                bestPart, bestDistance = part, distance
+            end
+        end
+    end
+    return bestPart
+end
+
+local function aimGetClosestPlayer(mode, fov)
+    if mode ~= "TargetAim" and fov then
+        fov = aimGetFOV(fov)
+    end
+    local closest, closestDistance = nil, math.huge
+    local mousePosition = UserInputService:GetMouseLocation()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if aimTargetUsable(player, mode) then
+            local part = aimGetPart(player, mode, true)
+            if part then
+                local screenPosition, onScreen = aimCamera:WorldToViewportPoint(part.Position)
+                -- Target Aim is an explicit lock selected by the user, so it
+                -- must not be limited by cursor FOV or viewport visibility.
+                -- Camera and Silent Aim retain their normal on-screen FOV.
+                if mode == "TargetAim" or onScreen then
+                    local distance = (Vector2.new(screenPosition.X, screenPosition.Y)
+                        - Vector2.new(mousePosition.X, mousePosition.Y)).Magnitude
+                    if (mode == "TargetAim" or not fov or distance <= fov)
+                        and distance < closestDistance then
+                        closest, closestDistance = player, distance
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function aimTargetInFOV(player, mode, fov)
+    if not player or not fov then return false end
+    local part = aimGetPart(player, mode, true)
+    if not part then return false end
+
+    local screenPosition, onScreen = aimCamera:WorldToViewportPoint(part.Position)
+    if not onScreen then return false end
+
+    local mousePosition = UserInputService:GetMouseLocation()
+    local distance = (Vector2.new(screenPosition.X, screenPosition.Y)
+        - Vector2.new(mousePosition.X, mousePosition.Y)).Magnitude
+    return distance <= aimGetFOV(fov)
+end
+
+local function aimPredictedPosition(player, mode, prediction, resolver)
+    local part = aimGetPart(player, mode, false, true)
+    if not part then return nil end
+
+    local velocity = part.AssemblyLinearVelocity or part.Velocity
+    if resolver then
+        local humanoid = aimGetHumanoid(player)
+        velocity = humanoid and humanoid.MoveDirection * 16 or Vector3.new(0, 0, 0)
+    end
+
+    return part.Position + Vector3.new(
+        velocity.X * prediction.X,
+        velocity.Y * prediction.Y,
+        velocity.Z * prediction.Z
+    )
+end
+
+local function aimFindMainEvent()
+    local direct = aimReplicatedStorage:FindFirstChild("MAINEVENT")
+        or aimReplicatedStorage:FindFirstChild("MainEvent")
+        or aimReplicatedStorage:FindFirstChild("MAIN_EVENT")
+    if direct and direct:IsA("RemoteEvent") then return direct end
+    for _, descendant in ipairs(aimReplicatedStorage:GetDescendants()) do
+        if descendant:IsA("RemoteEvent") and descendant.Name:lower() == "mainevent" then
+            return descendant
+        end
+    end
+    return nil
+end
+
+local function aimSendMouseUpdate(position)
+    if not position then return end
+    local remote = aimFindMainEvent()
+    if remote then
+        pcall(function() remote:FireServer("MOUSE", position) end)
+    end
+end
+
+local function aimClearTarget(showNotification)
+    local previousTarget = aimTarget or aimCameraTarget or aimSilentTarget
+    aimTarget = nil
+    aimTargeting = false
+    -- Z cancels aim targets, but Triggerbot is an independent toggle and
+    -- must stay armed while the user moves on to another target.
+    aimCameraTarget = nil
+    aimSilentTarget = nil
+    aimCameraHighlightTarget = nil
+    aimSilentHighlightTarget = nil
+    aimCameraCancelled = true
+    aimSilentCancelled = true
+    if showNotification and previousTarget and aimConfig.AimTargetNotify then
+        notify("UNTARGETING", getDisplayName(previousTarget), 2, nil, theme.AccentSecondary, true)
+    end
+    aimRefreshHighlight()
+end
+
+local function aimNotifyTargeting(player, suppressRecoveryNotification)
+    if suppressRecoveryNotification and player
+        and aimRecoveryNotificationSuppressed[player] then
+        aimRecoveryNotificationSuppressed[player] = nil
+        return
+    end
+    if player and aimConfig.AimTargetNotify then
+        notify("TARGETING", getDisplayName(player), 2, nil, theme.AccentSecondary, true)
+    end
+end
+
+function aimRefreshHighlight()
+    local desiredTarget = nil
+
+    if aimConfig.AimHighlightEnabled then
+        if aimTargeting and aimTarget
+            and aimTargetUsable(aimTarget, "TargetAim") then
+            desiredTarget = aimTarget
+        end
+    end
+
+    local desiredCharacter = desiredTarget and desiredTarget.Character
+    if desiredTarget ~= aimHighlightTarget
+        or desiredCharacter ~= aimHighlightCharacter then
+        if aimHighlight then aimHighlight:Destroy() end
+        aimHighlight = nil
+        aimHighlightTarget = desiredTarget
+        aimHighlightCharacter = desiredCharacter
+
+        if desiredTarget and desiredCharacter then
+            aimHighlight = Instance.new("Highlight")
+            aimHighlight.Name = "AimTargetHighlight"
+            aimHighlight.Adornee = desiredCharacter
+            aimHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            aimHighlight.FillColor = Color3.fromRGB(105, 175, 255)
+            aimHighlight.FillTransparency = 0.5
+            aimHighlight.OutlineColor = Color3.fromRGB(235, 245, 255)
+            aimHighlight.OutlineTransparency = 0.05
+            aimHighlight.Parent = aimHighlightFolder
+        end
+    end
+
+    if aimHighlight then
+        aimHighlight.Enabled = aimConfig.AimHighlightEnabled and aimHighlightTarget ~= nil
+        if aimConfig.AimRainbowHighlightEnabled then
+            aimHighlight.FillColor = Color3.fromHSV((tick() - aimRainbowStart) / 6 % 1, 0.85, 1)
+            aimHighlight.OutlineColor = aimHighlight.FillColor:Lerp(Color3.new(1, 1, 1), 0.45)
         else
-            tween(btn, {Position = UDim2.new(0, 3, 0.5, -11)}, 0.3, Enum.EasingStyle.Back)
-            tween(bg, {BackgroundColor3 = theme.BackgroundTertiary}, 0.3)
-            tween(s, {Transparency = 0.8}, 0.3)
+            aimHighlight.FillColor = Color3.fromRGB(105, 175, 255)
+            aimHighlight.OutlineColor = Color3.fromRGB(235, 245, 255)
+        end
+    end
+end
+
+local function aimIsMouseOverTarget(player)
+    local character = player and player.Character
+    local mouseTarget = aimMouse.Target
+    return character and mouseTarget and mouseTarget:IsDescendantOf(character)
+end
+
+local function aimGetPlayerUnderMouse()
+    local mouseTarget = aimMouse.Target
+    if not mouseTarget then return nil end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if aimTargetUsable(player, "Trigger")
+            and player.Character
+            and mouseTarget:IsDescendantOf(player.Character) then
+            return player
+        end
+    end
+    return nil
+end
+
+local function aimHookTool(tool)
+    if not tool or not tool:IsA("Tool") or aimToolConnections[tool] then return end
+    aimToolConnections[tool] = tool.Activated:Connect(function()
+        if autoKill.Config.Enabled then return end
+
+        if aimConfig.TargetAimEnabled and aimTargeting and aimTarget
+            and aimTargetUsable(aimTarget, "TargetAim") then
+            aimSendMouseUpdate(aimPredictedPosition(
+                aimTarget, "TargetAim", aimConfig.TargetAimPrediction, aimConfig.TargetAimResolver
+            ))
+        end
+
+        -- Auto Kill has its own target list and never changes the normal
+        -- C-selected aimbot target. Its predicted position is prepared by
+        -- the Auto Kill loop before the tool is activated.
+        if autoKill.FirePosition then
+            aimSendMouseUpdate(autoKill.FirePosition)
+        end
+
+        if aimConfig.SilentEnabled and not aimSilentCancelled then
+            local silentTarget = aimSilentTarget
+        if silentTarget and aimTargetUsable(silentTarget, "Silent") then
+                aimSilentTarget = silentTarget
+                aimSendMouseUpdate(aimPredictedPosition(
+                    silentTarget, "Silent", aimConfig.SilentPrediction, aimConfig.SilentResolver
+                ))
+            else
+                aimSilentTarget = nil
+            end
+            aimRefreshHighlight()
         end
     end)
 end
+
+local function aimHookCharacter(character)
+    if not character then return end
+    for _, child in ipairs(character:GetChildren()) do aimHookTool(child) end
+    character.ChildAdded:Connect(aimHookTool)
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if isPlayerTyping() or state.KeybindCapture then return end
+
+    if autoKill.Config.Enabled then
+        aimRmbHeld = false
+        aimTriggerActive = false
+        return
+    end
+
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        if aimConfig.CameraMouseButton2 then
+            aimRmbHeld = true
+            aimCameraCancelled = false
+        end
+        return
+    end
+    if gameProcessed then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+    if aimConfig.CancelKey and input.KeyCode == aimConfig.CancelKey then
+        aimClearTarget(true)
+    elseif aimConfig.TargetKey and input.KeyCode == aimConfig.TargetKey then
+        local previousTarget = aimTarget
+        aimCameraCancelled = false
+        aimSilentCancelled = false
+        aimTarget = aimGetClosestPlayer("TargetAim")
+        aimTargeting = aimTarget ~= nil
+        if aimTarget ~= previousTarget then
+            aimNotifyTargeting(aimTarget)
+        end
+        aimRefreshHighlight()
+    elseif aimConfig.TriggerKey and input.KeyCode == aimConfig.TriggerKey then
+        if aimConfig.TriggerEnabled then aimTriggerActive = not aimTriggerActive end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        aimRmbHeld = false
+    end
+end)
+
+local function aimTriggerClick()
+    local mousePosition = UserInputService:GetMouseLocation()
+    pcall(function()
+        aimVirtualInput:SendMouseButtonEvent(mousePosition.X, mousePosition.Y, 0, true, game, false)
+        aimVirtualInput:SendMouseButtonEvent(mousePosition.X, mousePosition.Y, 0, false, game, false)
+    end)
+end
+
+RunService.RenderStepped:Connect(function()
+    if autoKill.Config.Enabled then
+        aimTarget = nil
+        aimTargeting = false
+        aimRmbHeld = false
+        aimTriggerActive = false
+        aimCameraTarget = nil
+        aimSilentTarget = nil
+        aimUpdateFOVVisualization()
+        aimRefreshHighlight()
+        return
+    end
+
+    if aimTarget and not aimTarget.Parent then
+        aimClearTarget(true)
+    end
+
+    if aimCameraTarget then
+        if aimCameraTarget ~= aimTarget
+            or not aimTargetUsable(aimCameraTarget, "Camera")
+            or not aimTargetInFOV(aimCameraTarget, "Camera", aimConfig.CameraFOV) then
+            aimRecoveryNotificationSuppressed[aimCameraTarget] = true
+            aimCameraTarget = nil
+        end
+    end
+
+    if aimConfig.CameraEnabled and aimRmbHeld and not aimCameraCancelled then
+        -- RMB activates Camera Assistance, but C is the only key allowed to
+        -- select the target. Camera Assistance never acquires its own target.
+        aimCameraTarget = aimTarget
+            and aimTargetUsable(aimTarget, "Camera")
+            and aimTargetInFOV(aimTarget, "Camera", aimConfig.CameraFOV)
+            and aimTarget
+            or nil
+
+        if aimCameraTarget then
+            local predicted = aimPredictedPosition(
+                aimCameraTarget, "Camera", aimConfig.CameraPrediction, aimConfig.CameraResolver
+            )
+            if predicted then
+                local current = aimCamera.CFrame.Position
+                local smoothing = math.clamp(aimConfig.CameraSmoothing, 0.001, 1)
+                aimCamera.CFrame = aimCamera.CFrame:Lerp(CFrame.new(current, predicted), smoothing)
+            end
+        end
+    end
+
+    if aimSilentTarget then
+        if aimSilentTarget ~= aimTarget
+            or not aimTargetUsable(aimSilentTarget, "Silent") then
+            aimRecoveryNotificationSuppressed[aimSilentTarget] = true
+            aimSilentTarget = nil
+        end
+    end
+
+    if aimConfig.SilentEnabled and not aimSilentCancelled then
+        -- Silent Aim also uses only the C-selected target.
+        aimSilentTarget = aimTarget
+            and aimTargetUsable(aimTarget, "Silent")
+            and aimTargetInFOV(aimTarget, "Silent", aimConfig.SilentFOV)
+            and aimTarget
+            or nil
+    end
+
+    -- Triggerbot may arm with V, but it cannot select a separate target.
+    local triggerTarget = aimTarget
+    if aimConfig.TriggerEnabled and aimTriggerActive and triggerTarget
+        and aimTargetUsable(triggerTarget, "Trigger")
+        and aimIsMouseOverTarget(triggerTarget)
+        and tick() - aimLastClick >= aimTriggerDelay then
+        aimLastClick = tick()
+        aimTriggerDelay = math.random() * (aimConfig.TriggerEnd - aimConfig.TriggerStart)
+            + aimConfig.TriggerStart
+        aimTriggerClick()
+    end
+    aimRefreshHighlight()
+    aimUpdateFOVVisualization()
+end)
+
+localPlayer.CharacterAdded:Connect(aimHookCharacter)
+if localPlayer.Character then aimHookCharacter(localPlayer.Character) end
+
+-- ======================================================== --
+--  AUTO KILL ENGINE
+-- ======================================================== --
+-- This target is intentionally separate from aimTarget. Selecting a player
+-- here never changes the normal C-key aimbot selection.
+function autoKill.SetStatus(text, color)
+    if autoKill.UI.StatusLabel then
+        local statusColor = color or theme.TextSecondary
+        if autoKill.UI.StatusLabel.Text ~= text
+            or autoKill.UI.StatusLabel.TextColor3 ~= statusColor then
+            autoKill.UI.StatusLabel.Text = text
+            autoKill.UI.StatusLabel.TextColor3 = statusColor
+        end
+    end
+end
+
+function autoKill.GetRoot(player)
+    local character = player and player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    return (humanoid and humanoid.RootPart)
+        or (character and character:FindFirstChild("HumanoidRootPart"))
+end
+
+function autoKill.IsTargetUsable(player)
+    if not player or player == localPlayer or not player.Parent then return false end
+    local character = player.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or (tonumber(humanoid.Health) or 0) <= 0.5 then return false end
+    return not aimIsKnocked(player)
+end
+
+function autoKill.IsSelected(player)
+    return player
+        and autoKill.SelectedUserIds[player.UserId] == true
+end
+
+function autoKill.SetSelected(player, selected)
+    if not player then return end
+    local userId = player.UserId
+    if selected then
+        autoKill.SelectedUserIds[userId] = true
+        autoKill.SelectedTargets[player] = true
+    else
+        autoKill.SelectedUserIds[userId] = nil
+        autoKill.SelectedTargets[player] = nil
+    end
+    saveAutoKillTargetSelection()
+end
+
+function autoKill.RefreshTargetOrder()
+    local ordered = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if autoKill.IsSelected(player)
+            and not autoKill.LeavingUserIds[player.UserId] then
+            autoKill.SelectedTargets[player] = true
+            table.insert(ordered, player)
+        end
+    end
+    table.sort(ordered, function(a, b)
+        return a.DisplayName:lower() < b.DisplayName:lower()
+    end)
+    autoKill.TargetOrder = ordered
+
+    autoKill.TargetIndex = 0
+    for index, player in ipairs(ordered) do
+        if player == autoKill.Target then
+            autoKill.TargetIndex = index
+            break
+        end
+    end
+end
+
+function autoKill.SetActiveTarget(player)
+    if player == autoKill.Target then return false end
+
+    autoKill.Target = player
+    autoKill.WasKnocked = false
+    autoKill.FirePosition = nil
+    autoKill.TargetReadyAt = player and (os.clock() + 0.45) or 0
+    autoKill.NextShot = 0
+    autoKill.FireLoopId += 1
+    autoKill.FireLoopRunning = false
+    autoKill.RefreshTargetOrder()
+
+    if player then
+        autoKill.SetStatus("Selected: " .. getDisplayName(player), theme.Success)
+    else
+        autoKill.SetStatus("Select a player from the list", theme.Warning)
+    end
+    return true
+end
+
+function autoKill.CycleToNextTarget()
+    autoKill.RefreshTargetOrder()
+    local ordered = autoKill.TargetOrder
+    if #ordered == 0 then
+        autoKill.SetActiveTarget(nil)
+        return false
+    end
+
+    local currentIndex = autoKill.TargetIndex
+    if currentIndex < 1 then
+        for index, player in ipairs(ordered) do
+            if player == autoKill.Target then
+                currentIndex = index
+                break
+            end
+        end
+    end
+
+    for step = 1, #ordered do
+        local index = ((currentIndex + step - 1) % #ordered) + 1
+        local candidate = ordered[index]
+        if autoKill.IsTargetUsable(candidate) then
+            autoKill.SetActiveTarget(candidate)
+            return true
+        end
+    end
+    return false
+end
+
+function autoKill.AdvanceAfterPlayerLeaves(player)
+    if player then
+        autoKill.SelectedTargets[player] = nil
+        autoKill.LeavingUserIds[player.UserId] = true
+    end
+
+    -- Clear the departing instance before rebuilding the order. This avoids
+    -- selecting a Player object that is still briefly present during the
+    -- PlayerRemoving event.
+    autoKill.Target = nil
+    autoKill.StopRuntime()
+    autoKill.RefreshTargetOrder()
+
+    for _, candidate in ipairs(autoKill.TargetOrder) do
+        if autoKill.IsTargetUsable(candidate) then
+            autoKill.SetActiveTarget(candidate)
+            return true
+        end
+    end
+
+    autoKill.SetStatus("No selected targets remain", theme.Warning)
+    return false
+end
+
+function autoKill.ToggleSelectedTarget(player)
+    if not player or not player.Parent then return end
+
+    if autoKill.IsSelected(player) then
+        autoKill.SetSelected(player, false)
+        if autoKill.Target == player then
+            autoKill.CycleToNextTarget()
+        end
+    else
+        autoKill.SetSelected(player, true)
+        autoKill.RefreshTargetOrder()
+        if not autoKill.Target or not autoKill.IsTargetUsable(autoKill.Target) then
+            autoKill.SetActiveTarget(player)
+        end
+    end
+    autoKill.RefreshTargetOrder()
+end
+
+function autoKill.RestoreCamera()
+    local humanoid = aimGetHumanoid(localPlayer)
+    local camera = Workspace.CurrentCamera
+    if camera then
+        if autoKill.CameraSubjectBeforeAutoKill then
+            pcall(function()
+                camera.CameraType = autoKill.CameraTypeBeforeAutoKill
+                camera.CameraSubject = autoKill.CameraSubjectBeforeAutoKill
+            end)
+        elseif humanoid then
+            pcall(function() camera.CameraSubject = humanoid end)
+        end
+    end
+    autoKill.CameraTypeBeforeAutoKill = nil
+    autoKill.CameraSubjectBeforeAutoKill = nil
+    autoKill.CameraLocked = false
+    autoKill.CameraLockCFrame = nil
+end
+
+function autoKill.LockCamera(target)
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+
+    if not autoKill.CameraLocked then
+        autoKill.CameraTypeBeforeAutoKill = camera.CameraType
+        autoKill.CameraSubjectBeforeAutoKill = camera.CameraSubject
+        autoKill.CameraLocked = true
+    end
+
+    local targetHumanoid = target and aimGetHumanoid(target)
+    if targetHumanoid then
+        -- Follow the active Auto Kill target's perspective instead of freezing
+        -- the camera at the position where Auto Kill was enabled.
+        pcall(function()
+            camera.CameraType = Enum.CameraType.Custom
+            camera.CameraSubject = targetHumanoid
+        end)
+    end
+end
+
+function autoKill.HideRespawnCharacter(character)
+    if not character then return end
+    autoKill.RespawnHiddenParts = {}
+    for _, descendant in ipairs(character:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local partState = {
+                Part = descendant,
+                Transparency = descendant.LocalTransparencyModifier,
+                CanCollide = descendant.CanCollide,
+            }
+            table.insert(autoKill.RespawnHiddenParts, partState)
+            pcall(function()
+                descendant.LocalTransparencyModifier = 1
+                descendant.CanCollide = false
+            end)
+        end
+    end
+    autoKill.RespawnCharacter = character
+end
+
+function autoKill.RestoreRespawnCharacter(character)
+    if character and autoKill.RespawnCharacter ~= character then return end
+    for _, partState in ipairs(autoKill.RespawnHiddenParts) do
+        local part = partState.Part
+        if part and part.Parent then
+            pcall(function()
+                part.LocalTransparencyModifier = partState.Transparency
+                part.CanCollide = partState.CanCollide
+            end)
+        end
+    end
+    table.clear(autoKill.RespawnHiddenParts)
+    if not character or autoKill.RespawnCharacter == character then
+        autoKill.RespawnCharacter = nil
+    end
+end
+
+localPlayer.CharacterRemoving:Connect(function(character)
+    if not autoKill.Config.Enabled then return end
+    autoKill.RespawnGraceUntil = os.clock() + 2
+    autoKill.FirePosition = nil
+    autoKill.FireLoopId += 1
+    autoKill.FireLoopRunning = false
+    autoKill.Reloading = false
+    autoKill.HideRespawnCharacter(character)
+end)
+
+localPlayer.CharacterAdded:Connect(function(character)
+    if not autoKill.Config.Enabled then return end
+
+    autoKill.RespawnGraceUntil = os.clock() + 2
+    autoKill.FirePosition = nil
+    autoKill.FireLoopId += 1
+    autoKill.FireLoopRunning = false
+    autoKill.Reloading = false
+    autoKill.HideRespawnCharacter(character)
+
+    task.defer(function()
+        if not character.Parent then return end
+        local targetRoot = autoKill.GetRoot(autoKill.Target)
+        if targetRoot then
+            local safePosition = targetRoot.Position
+                + Vector3.new(0, -AUTO_KILL_DROP_DISTANCE, 0)
+            local safeCFrame = CFrame.new(safePosition)
+                * (character:GetPivot() - character:GetPivot().Position)
+            pcall(function() character:PivotTo(safeCFrame) end)
+        else
+            autoKill.HoldUnderground()
+        end
+    end)
+
+    task.delay(2, function()
+        if character.Parent and autoKill.RespawnCharacter == character then
+            autoKill.RestoreRespawnCharacter(character)
+        end
+    end)
+end)
+
+function autoKill.RestoreTools()
+    for tool, originalGrip in pairs(autoKill.ToolGrips) do
+        if tool and tool.Parent then
+            pcall(function() tool.GripPos = originalGrip end)
+        end
+    end
+    table.clear(autoKill.ToolGrips)
+end
+
+function autoKill.FindUSP(container)
+    if not container then return nil end
+    for _, child in ipairs(container:GetChildren()) do
+        local toolName = child.Name:lower():gsub("[%[%]]", "")
+        if child:IsA("Tool") and toolName == "usp" then
+            return child
+        end
+    end
+    return nil
+end
+
+function autoKill.EquipUSP()
+    local character = localPlayer.Character
+    local equipped = autoKill.FindUSP(character)
+    if equipped then return equipped end
+
+    local backpack = localPlayer:FindFirstChildOfClass("Backpack")
+    local usp = autoKill.FindUSP(backpack)
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if usp and humanoid then
+        pcall(function() humanoid:EquipTool(usp) end)
+    end
+    return autoKill.FindUSP(character)
+end
+
+function autoKill.BuyUSPOnce()
+    local now = os.clock()
+    if now < (autoKill.NextUSPPurchaseAt or 0) then return false end
+    autoKill.NextUSPPurchaseAt = now + 2
+
+    for _, item in ipairs(Workspace:GetDescendants()) do
+        local itemName = item.Name:lower():gsub("[%[%]]", "")
+        if itemName == "usp" then
+            local detector = item:FindFirstChildWhichIsA("ClickDetector", true)
+            if detector and type(fireclickdetector) == "function" then
+                local ok = pcall(function() fireclickdetector(detector, 1) end)
+                if ok then return true end
+            end
+        end
+    end
+    return false
+end
+
+function autoKill.EnsureUSP()
+    local equipped = autoKill.EquipUSP()
+    if equipped then return equipped end
+    if autoKill.BuyUSPOnce() then
+        local deadline = os.clock() + 0.45
+        repeat
+            task.wait(0.05)
+            equipped = autoKill.EquipUSP()
+            if equipped then return equipped end
+        until os.clock() >= deadline
+    end
+    return autoKill.EquipUSP()
+end
+
+function autoKill.ApplyToolLift(tool)
+    if not tool then return end
+
+    if autoKill.ToolGrips[tool] == nil then
+        local ok, grip = pcall(function() return tool.GripPos end)
+        if ok then autoKill.ToolGrips[tool] = grip end
+    end
+
+    local originalGrip = autoKill.ToolGrips[tool]
+    if originalGrip then
+        pcall(function()
+            -- Apply independent grip offsets. RMB automation is intentionally
+            -- disabled while this version is being tested.
+            tool.GripPos = Vector3.new(
+                originalGrip.X - autoKill.Config.ToolOffset.X,
+                originalGrip.Y - autoKill.Config.ToolOffset.Y,
+                originalGrip.Z - autoKill.Config.ToolOffset.Z
+            )
+        end)
+    end
+end
+
+function autoKill.FollowTarget(target)
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = humanoid and humanoid.RootPart
+    local targetRoot = autoKill.GetRoot(target)
+    if not character or not rootPart or not targetRoot then return false end
+
+    -- Use world-space Y. A downed character's root can rotate sideways, so
+    -- targetRoot.CFrame * CFrame.new(...) would move horizontally instead of
+    -- keeping the local character directly underneath on the map.
+    local followPosition = targetRoot.Position
+        + Vector3.new(0, -AUTO_KILL_DROP_DISTANCE, 0)
+    local uprightRotation = rootPart.CFrame - rootPart.Position
+    local followCFrame = CFrame.new(followPosition) * uprightRotation
+    rootPart.CFrame = followCFrame
+    pcall(function() character:PivotTo(followCFrame) end)
+    rootPart.Velocity = Vector3.new(0, 0, 0)
+    rootPart.RotVelocity = Vector3.new(0, 0, 0)
+    return true
+end
+
+function autoKill.ReloadTool(force)
+    if autoKill.Reloading then return end
+
+    local character = localPlayer.Character
+    local tool = character and character:FindFirstChildOfClass("Tool")
+    local ammo = tool and tool:FindFirstChild("AMMO", true)
+    if not tool or not ammo then return end
+    if not force and tonumber(ammo.Value) ~= 0 then return end
+
+    autoKill.Reloading = true
+    task.spawn(function()
+        local start = os.clock()
+        while autoKill.Config.Enabled
+            and autoKill.Target
+            and tool.Parent
+            and os.clock() - start < (force and 0.35 or 2) do
+            aimVirtualInput:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+            task.wait(0.02)
+            aimVirtualInput:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+            task.wait(0.02)
+
+            local currentAmmo = tonumber(ammo.Value)
+            if not force and currentAmmo and currentAmmo > 0 then break end
+            if force and currentAmmo and currentAmmo > 0
+                and os.clock() - start > 0.08 then break end
+        end
+        autoKill.Reloading = false
+    end)
+end
+
+function autoKill.TrackAmmo(tool)
+    if tool ~= autoKill.LastTool then
+        autoKill.LastTool = tool
+        autoKill.LastAmmo = nil
+        autoKill.ReloadCooldown = 0
+        autoKill.SeenAmmo = false
+    end
+
+    local ammo = tool and tool:FindFirstChild("AMMO", true)
+    if not ammo then
+        autoKill.LastAmmo = nil
+        autoKill.ReloadCooldown = 0
+        autoKill.SeenAmmo = false
+        return
+    end
+
+    local current = tonumber(ammo.Value)
+    if not current then return end
+    if not autoKill.SeenAmmo then
+        autoKill.SeenAmmo = true
+        autoKill.LastAmmo = current
+        return
+    end
+
+    local now = os.clock()
+    if current == 0 and now - autoKill.ReloadCooldown > 0.3 then
+        autoKill.ReloadTool(false)
+        autoKill.ReloadCooldown = now
+    elseif current > 0 then
+        autoKill.ReloadCooldown = 0
+    end
+    autoKill.LastAmmo = current
+end
+
+function autoKill.StartFireLoop()
+    if autoKill.FireLoopRunning then return end
+
+    autoKill.FireLoopId += 1
+    local loopId = autoKill.FireLoopId
+    autoKill.FireLoopRunning = true
+    task.spawn(function()
+        while autoKill.FireLoopId == loopId
+            and autoKill.Config.Enabled
+            and autoKill.Target
+            and not autoKill.WasKnocked
+            and os.clock() >= autoKill.RespawnGraceUntil do
+            local fireTarget = autoKill.Target
+            local fireHumanoid = aimGetHumanoid(fireTarget)
+            if not fireHumanoid
+                or (tonumber(fireHumanoid.Health) or 0) <= 0.5
+                or aimIsKnocked(fireTarget) then
+                autoKill.FirePosition = nil
+                break
+            end
+
+            local character = localPlayer.Character
+            local tool = autoKill.EnsureUSP()
+            local position = aimPredictedPosition(
+                fireTarget, "TargetAim", autoKill.PredictionVector, autoKill.Config.Resolver
+            )
+            local silentPosition
+            if autoKill.Config.SilentEnabled then
+                local silentPrediction = {
+                    X = tonumber(autoKill.Config.SilentPrediction) or 0,
+                    Y = 0,
+                    Z = tonumber(autoKill.Config.SilentPrediction) or 0,
+                }
+                -- This uses the Auto Kill target directly. It does not read
+                -- the normal Aim page's silent target or enable state.
+                silentPosition = aimPredictedPosition(
+                    fireTarget, "TargetAim", silentPrediction, false
+                )
+            end
+            autoKill.FirePosition = position
+            autoKill.SilentFirePosition = silentPosition
+
+            local ammo = tool and tool:FindFirstChild("AMMO", true)
+            local ammoEmpty = ammo and tonumber(ammo.Value) and tonumber(ammo.Value) <= 0
+            if tool and not autoKill.Reloading and not ammoEmpty and position then
+                if silentPosition then
+                    aimSendMouseUpdate(silentPosition)
+                    pcall(function() tool:Activate() end)
+                end
+                aimSendMouseUpdate(position)
+                pcall(function() tool:Activate() end)
+            elseif ammoEmpty then
+                autoKill.ReloadTool(false)
+            end
+            task.wait(math.max(0.04, tonumber(autoKill.Config.FireInterval) or 0.04))
+        end
+        if autoKill.FireLoopId == loopId then
+            autoKill.FireLoopRunning = false
+        end
+    end)
+end
+
+function autoKill.StopRuntime()
+    autoKill.FirePosition = nil
+    autoKill.SilentFirePosition = nil
+    autoKill.NextShot = 0
+    autoKill.FireLoopId += 1
+    autoKill.FireLoopRunning = false
+    autoKill.WasKnocked = false
+    autoKill.LastAmmo = nil
+    autoKill.LastTool = nil
+    autoKill.SeenAmmo = false
+    autoKill.ReloadCooldown = 0
+    if autoKill.WasActive then
+        autoKill.RestoreTools()
+        autoKill.RestoreCamera()
+        autoKill.WasActive = false
+    end
+end
+
+function autoKill.CaptureLocalPosition()
+    if autoKill.CharacterCFrameBeforeAutoKill then return end
+    local character = localPlayer.Character
+    if character then
+        autoKill.CharacterCFrameBeforeAutoKill = character:GetPivot()
+    end
+end
+
+function autoKill.HoldUnderground()
+    autoKill.CaptureLocalPosition()
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local rootPart = humanoid and humanoid.RootPart
+    local origin = autoKill.CharacterCFrameBeforeAutoKill
+    if not character or not rootPart or not origin then return end
+
+    local safePosition = origin.Position + Vector3.new(0, -100, 0)
+    local safeCFrame = CFrame.new(safePosition) * (origin - origin.Position)
+    pcall(function() character:PivotTo(safeCFrame) end)
+    rootPart.Velocity = Vector3.new(0, 0, 0)
+    rootPart.RotVelocity = Vector3.new(0, 0, 0)
+end
+
+function autoKill.ForceResetCharacter()
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not character then
+        pcall(function() localPlayer:LoadCharacter() end)
+        return
+    end
+
+    -- Break the current character first. Some environments report a
+    -- successful LoadCharacter call without actually replacing the client
+    -- character, so this gives the reset a reliable local fallback.
+    pcall(function() character:BreakJoints() end)
+    if humanoid then
+        pcall(function() humanoid.Health = 0 end)
+    end
+
+    task.delay(0.2, function()
+        if localPlayer.Character == character or not localPlayer.Character then
+            pcall(function() localPlayer:LoadCharacter() end)
+        end
+    end)
+end
+
+function autoKill.ResetLocalState(forceRespawn)
+    autoKill.StopRuntime()
+    autoKill.RestoreTools()
+    autoKill.RestoreCamera()
+
+    local hadAutoKillPosition = autoKill.CharacterCFrameBeforeAutoKill ~= nil
+
+    autoKill.CharacterCFrameBeforeAutoKill = nil
+    autoKill.TargetReadyAt = 0
+    autoKill.RespawnGraceUntil = 0
+    autoKill.RestoreRespawnCharacter()
+
+    if forceRespawn and hadAutoKillPosition then
+        autoKill.ForceResetCharacter()
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    local target = autoKill.Target
+    if autoKill.Config.Enabled and os.clock() < autoKill.RespawnGraceUntil then
+        autoKill.StopRuntime()
+        autoKill.SetStatus("Respawn cooldown — waiting 2 seconds", theme.Warning)
+        return
+    end
+
+    if autoKill.Config.Enabled and target and not target.Parent then
+        -- The Player instance is gone, but its UserId must stay selected so
+        -- the replacement instance can be restored when it rejoins.
+        autoKill.AdvanceAfterPlayerLeaves(target)
+        target = autoKill.Target
+        if not target then
+            autoKill.HoldUnderground()
+            return
+        end
+    end
+
+    if autoKill.Config.Enabled
+        and target
+        and target.Parent
+        and not target.Character then
+        -- A leaving Player can briefly remain parented while its Character
+        -- is already gone. Give another selected target a chance before
+        -- waiting on the departing instance.
+        local previousTarget = target
+        autoKill.CycleToNextTarget()
+        target = autoKill.Target
+        if target == previousTarget then
+            autoKill.StopRuntime()
+            autoKill.HoldUnderground()
+            autoKill.SetStatus("Waiting for target character...", theme.Warning)
+            return
+        end
+    end
+
+    if autoKill.Config.Enabled
+        and target
+        and target.Parent
+        and not autoKill.IsTargetUsable(target) then
+        -- KO/low-health targets can still advance through the selected list.
+        autoKill.CycleToNextTarget()
+        target = autoKill.Target
+    end
+
+    -- A replacement target can briefly lack a Character/Humanoid while
+    -- Roblox finishes replication. Retry the selected list every frame
+    -- instead of leaving the local player suspended underground forever.
+    if autoKill.Config.Enabled and not target then
+        autoKill.RefreshTargetOrder()
+        autoKill.CycleToNextTarget()
+        target = autoKill.Target
+    end
+
+    local active = autoKill.Config.Enabled
+        and target
+        and target ~= localPlayer
+        and target.Parent
+        and target.Character
+
+    if not active then
+        autoKill.StopRuntime()
+        if autoKill.Config.Enabled then
+            autoKill.HoldUnderground()
+            if #autoKill.TargetOrder > 0 then
+                autoKill.SetStatus("Waiting for a selected target...", theme.Warning)
+            else
+                autoKill.SetStatus("Select a player from the list", theme.Warning)
+            end
+        end
+        return
+    end
+
+    autoKill.WasActive = true
+    if not autoKill.CharacterCFrameBeforeAutoKill then
+        local character = localPlayer.Character
+        if character then
+            autoKill.CharacterCFrameBeforeAutoKill = character:GetPivot()
+        end
+    end
+    local targetHumanoid = aimGetHumanoid(target)
+    autoKill.LockCamera(target)
+
+    if not autoKill.FollowTarget(target) then
+        autoKill.FirePosition = nil
+        autoKill.SetStatus("Waiting for target character...", theme.Warning)
+        return
+    end
+
+    local targetKnocked = aimIsKnocked(target)
+    local targetHealth = targetHumanoid and tonumber(targetHumanoid.Health) or 0
+    local targetLowHealth = targetHumanoid == nil or targetHealth <= 0.5
+    if targetKnocked or targetLowHealth then
+        -- Keep following the target, but do not force-equip or fire while it
+        -- is KO/downed, resetting, or at/below the 0.5 health threshold.
+        if not autoKill.WasKnocked and targetHumanoid then
+            autoKill.ReloadTool(true)
+        end
+        autoKill.WasKnocked = true
+        autoKill.FirePosition = nil
+        autoKill.NextShot = 0
+        autoKill.FireLoopId += 1
+        autoKill.FireLoopRunning = false
+        autoKill.CycleToNextTarget()
+        autoKill.SetStatus(
+            targetKnocked
+                and "Target knocked — waiting for recovery"
+                or "Target low health — waiting for recovery",
+            theme.Warning
+        )
+        return
+    end
+
+    if os.clock() < autoKill.TargetReadyAt then
+        autoKill.FirePosition = nil
+        autoKill.FireLoopId += 1
+        autoKill.FireLoopRunning = false
+        autoKill.SetStatus("Positioning under " .. getDisplayName(target) .. "...", theme.Warning)
+        return
+    end
+
+    autoKill.WasKnocked = false
+    local tool = autoKill.EnsureUSP()
+    autoKill.ApplyToolLift(tool)
+    autoKill.TrackAmmo(tool)
+    local autoKillPrediction = tonumber(autoKill.Config.Prediction) or 0
+    autoKill.PredictionVector.X = autoKillPrediction
+    autoKill.PredictionVector.Y = 0
+    autoKill.PredictionVector.Z = autoKillPrediction
+    local predicted = aimPredictedPosition(
+        target, "TargetAim", autoKill.PredictionVector, autoKill.Config.Resolver
+    )
+    autoKill.FirePosition = predicted
+    autoKill.SetStatus("Locked: " .. getDisplayName(target) .. "  •  firing", theme.Success)
+
+    if predicted then
+        autoKill.StartFireLoop()
+        if not tool then
+            autoKill.SetStatus("Equip a tool to start firing", theme.Warning)
+        end
+    end
+end)
 
 -- ======================================================== --
 --  INFO / UPDATES PAGE
@@ -843,31 +2838,49 @@ end
 -- xx INFORMATION
 -- Add any extra important notes or announcements here.
 local INFO_LINES = {
-    "• VERSION: STAFF ALERT PREMIUM",
-    "• New premium features (check updates below)",
-    "• When group gets updated again, be aware that most staff will not be in it yet.",
-    "• This will mean it's not as accurate yet, use at own risk.",
+    "• VERSION: STAFF ALERT PREMIUM  •  polished multi-tool build",
+    "• STAFF ALERTS: monitoring, notifications, ESP, staff checks, and Auto Kick",
+    "• AIM: Target Aim, Camera Assistance, Silent Aim, Triggerbot, hit-part pools, and FOV",
+    "• AUTO KILL: multi-target selection, prediction, target cycling, and rejoin recovery",
+    "• TARGET / EXTRA: spectate, Chat HUD, Auto Armor, Fake Auto Armor, and one-press armor",
+    "• FLING: multi-fling controls with underground mode",
+    "• SETTINGS: every submenu has opt-in persistence; feature enables stay session-only",
+    "• FOV RULE: Camera Assistance and Silent Aim require the target inside their FOV.",
+    "• Target Aim is the explicit lock mode and intentionally ignores FOV.",
     "",
-    "• Staff Group = official staff with perms",
-    "• Undercover = Staff with perms who are no in the group (high chance it has perms)",
-    "• Possible staff group = groups who may give people staff perms besides the official (low chance it has perms)",
+    "• Staff Group = official staff with permissions",
+    "• Undercover = staff with permissions who are not currently in the official group",
+    "• Possible Staff = groups that may grant staff permissions (lower confidence)",
+    "• Group data can lag after a staff update; use the results with care.",
 }
 
 -- xx UPDATES
 -- New items (+) should go at the TOP of this list.
 local UPDATE_LINES = {
-    "+ Added exclusive multi-fling -> Fling",
-    "+ Added exclusive Auto Armor toggle -> Target/Extra",
-    "+ Added Undegroud toggle for fling (stay under the map).",
+    "+ Added premium badge and polished top-bar/sidebar presentation.",
+    "+ Added dedicated Camera Assistance and Silent Aim FOV enforcement.",
+    "+ Added Aim FOV ring using the configured Camera/Silent FOV.",
+    "+ Added Auto Kill prediction controls with default 0 and opt-in persistence.",
+    "+ Added Auto Kill target handoff when a selected player leaves.",
+    "+ Added UserId-based target restoration when a selected player rejoins.",
+    "+ Added continuous recovery while a replacement character is loading.",
+    "+ Added per-submenu Save Settings controls.",
+    "+ Added readable Aim keybind controls and white Auto Kill player names.",
+    "+ Added exclusive multi-fling and underground mode -> Fling",
+    "+ Added one-press Auto Armor and Fake Auto Armor -> Target / Extra",
 }
 
 -- xx EXPERIMENTAL FUNCTIONS
 -- Describe experimental / beta features here.
 local EXPERIMENTAL_LINES = {
-    "+ Added Multi-Fling.",
-    "+ Added Auto armor toggle.",
-    "+ Added Undegroud toggle for fling (stay under the map).",
-    "! These features may not be 100% accurate at all times, be aware.",
+    "BETA  •  Auto Kill target cycling across leave, respawn, and KO states.",
+    "BETA  •  Camera Assistance and Silent Aim use independent FOV gates.",
+    "BETA  •  Multi-part hit selection randomizes the selected body-part pool.",
+    "BETA  •  Resolver switches remain manual and are never restored from saves.",
+    "BETA  •  Fake Auto Armor waits for a real character respawn before buying.",
+    "BETA  •  Persistent target lists use UserIds so Player instances can change.",
+    "! Experimental features can behave differently across game updates.",
+    "! If a game changes its remotes, character states, or UI, recheck results.",
 }
 
 -- Builds one labelled section.  Edit the tables above, not this function.
@@ -927,7 +2940,7 @@ tt.BackgroundTransparency = 1
 tt.Size = UDim2.new(1, 0, 0, 30)
 tt.Font = Enum.Font.GothamBold
 --xx Subtitle Target/Extra
-tt.Text = "PLAYER TARGETING"
+tt.Text = "TARGET / EXTRA"
 tt.TextColor3 = theme.AccentSecondary
 tt.TextSize = 14
 tt.TextXAlignment = Enum.TextXAlignment.Left
@@ -1012,9 +3025,29 @@ input.FocusLost:Connect(function(enter)
     end
 end)
 
+local autoArmorKey
+
+createToggle("Save Settings", "Save Target / Extra and Auto Armor settings", 92,
+    config.TargetSaveSettings, function(value)
+        config.TargetSaveSettings = value
+        saveSettingWithNotice("TargetSaveSettings", value, "TARGET / EXTRA")
+        if value then
+            saveSettingWithNotice(
+                "AutoArmorNotifications",
+                config.AutoArmorNotifications,
+                "TARGET / EXTRA"
+            )
+            if autoArmorKey then
+                saveAutoArmorKey(autoArmorKey)
+                saveSettingWithNotice("AutoArmorKey", autoArmorKey.Name, "TARGET / EXTRA")
+            end
+        end
+    end, targetPage)
+
+createSectionHeader(targetPage, "PLAYER TARGETING", 152, theme.AccentSecondary)
 local spectating = false
 local spectateConn
-createToggle("View target", "View the target perspective", 100, false, function(v)
+createToggle("View target", "View the target perspective", 184, false, function(v)
     if v then
         local target = getBestMatch(input.Text)
         if target and target ~= localPlayer then
@@ -1048,10 +3081,11 @@ createToggle("View target", "View the target perspective", 100, false, function(
     end
 end, targetPage)
 
-createToggle("Chat HUD", "Toggle the custom Chat HUD", 160, false, function(v)
+createToggle("Chat HUD", "Toggle the custom Chat HUD", 244, false, function(v)
     local TextChatService = game:GetService("TextChatService")
     pcall(function()
-        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, v)
+        -- Keep the core chat and input available even when the chat window is hidden.
+        StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
         TextChatService.ChatVersion = Enum.ChatVersion.TextChatService
         local win = TextChatService:FindFirstChildOfClass("ChatWindowConfiguration") or Instance.new("ChatWindowConfiguration")
         win.Enabled = v
@@ -1059,7 +3093,7 @@ createToggle("Chat HUD", "Toggle the custom Chat HUD", 160, false, function(v)
         win.TextSize = 16
         win.Parent = TextChatService
         local bar = TextChatService:FindFirstChildOfClass("ChatInputBarConfiguration") or Instance.new("ChatInputBarConfiguration")
-        bar.Enabled = v
+        bar.Enabled = true
         bar.TextColor3 = Color3.fromRGB(255, 255, 255)
         bar.TextSize = 18
         bar.Parent = TextChatService
@@ -1071,15 +3105,26 @@ createToggle("Chat HUD", "Toggle the custom Chat HUD", 160, false, function(v)
 end, targetPage)
 
 -- Auto Armor
--- While enabled, look for the Medium Armor purchase pad and activate its
--- ClickDetector periodically. The loop is tokenized so rapidly toggling the
--- setting cannot leave multiple purchase loops running at once.
+-- The original repeating toggle remains available. The separate keybind below
+-- purchases Medium Armor once per key press.
 local autoArmorLoopId = 0
+local function notifyAutoArmorToggle(label, enabled)
+    if config.AutoArmorNotifications then
+        notify(
+            "AUTO ARMOR",
+            label .. (enabled and " enabled" or " disabled"),
+            3,
+            enabled and "success" or "warning"
+        )
+    end
+end
+
 local function setAutoArmorEnabled(enabled)
     config.AutoArmorEnabled = enabled
     autoArmorLoopId = autoArmorLoopId + 1
     local loopId = autoArmorLoopId
 
+    notifyAutoArmorToggle("Auto Armor", enabled)
     if not enabled then return end
 
     task.spawn(function()
@@ -1096,7 +3141,7 @@ local function setAutoArmorEnabled(enabled)
                 pcall(function()
                     local armorPad = buyPads:FindFirstChild("[Medium Armor]")
                     local detector = armorPad and armorPad:FindFirstChild("ClickDetector")
-                    if detector then
+                    if detector and type(fireclickdetector) == "function" then
                         fireclickdetector(detector, 1)
                     end
                 end)
@@ -1107,9 +3152,1366 @@ local function setAutoArmorEnabled(enabled)
     end)
 end
 
-createToggle("Auto Armor", "Automatically activates the Medium Armor pad", 220, config.AutoArmorEnabled, function(v)
+createSectionHeader(targetPage, "AUTO ARMOR", 305, theme.Success)
+createToggle("Auto Armor", "Automatically activates the Medium Armor pad", 337, config.AutoArmorEnabled, function(v)
     setAutoArmorEnabled(v)
 end, targetPage)
+
+-- Auto Armor keybind
+-- One press buys Medium Armor once. The binding is saved when the executor
+-- exposes file APIs, with getgenv as a session fallback.
+local AUTO_ARMOR_KEY_FILE = "VF_StaffAlert_AutoArmorKey.txt"
+local autoArmorIgnoreUntil = 0
+
+local function autoArmorKeyConflict(key)
+    if key == theme.ToggleKey then
+        return false, "That key is already used to toggle the Staff Alert menu"
+    end
+    if key == staffCheckKey then
+        return false, "That key is already used for the active staff check"
+    end
+    return true
+end
+
+local function clearSavedAutoArmorKey()
+    getgenv().StaffAlertAutoArmorKeyName = ""
+    if type(writefile) == "function" then
+        pcall(function() writefile(AUTO_ARMOR_KEY_FILE, "") end)
+    end
+end
+
+local function loadAutoArmorKey()
+    if not config.TargetSaveSettings then return nil end
+    local savedName = getgenv().StaffAlertAutoArmorKeyName
+    if (not savedName or savedName == "") and type(isfile) == "function" and type(readfile) == "function" then
+        pcall(function()
+            if isfile(AUTO_ARMOR_KEY_FILE) then
+                savedName = readfile(AUTO_ARMOR_KEY_FILE)
+            end
+        end)
+    end
+    if not savedName or savedName == "" then return nil end
+
+    local ok, key = pcall(function()
+        return Enum.KeyCode[savedName]
+    end)
+    if ok and key and key ~= Enum.KeyCode.Unknown then
+        local allowed = autoArmorKeyConflict(key)
+        if allowed then return key end
+        clearSavedAutoArmorKey()
+    end
+    return nil
+end
+
+local function saveAutoArmorKey(key)
+    if not config.TargetSaveSettings then
+        clearSavedAutoArmorKey()
+        return
+    end
+    local keyName = key and key.Name or ""
+    getgenv().StaffAlertAutoArmorKeyName = keyName
+    if type(writefile) == "function" then
+        pcall(function() writefile(AUTO_ARMOR_KEY_FILE, keyName) end)
+    end
+end
+
+local function buyMediumArmorOnce()
+    local clicked = false
+    for _, v in ipairs(Workspace:GetDescendants()) do
+        if v.Name == "[Medium Armor]" then
+            local armorPad = v
+            local detector = armorPad:FindFirstChild("ClickDetector")
+            if detector and type(fireclickdetector) == "function" then
+                local ok = pcall(function() fireclickdetector(detector, 1) end)
+                clicked = ok
+            end
+            break
+        end
+    end
+
+    if clicked and config.AutoArmorNotifications then
+        notify("AUTO ARMOR", "Medium Armor purchased once", 3, "success")
+    elseif not clicked and config.AutoArmorNotifications then
+        notify("AUTO ARMOR", "Medium Armor pad was not found", 3, "warning")
+    end
+end
+
+state.FakeArmorCharacter = localPlayer.Character
+state.FakeArmorRespawnId = 0
+
+function state.HandleFakeArmorRespawn(character)
+    if not config.FakeAutoArmorEnabled then return end
+
+    state.FakeArmorRespawnId = state.FakeArmorRespawnId + 1
+    local respawnId = state.FakeArmorRespawnId
+    task.spawn(function()
+        local deadline = tick() + 12
+        while config.FakeAutoArmorEnabled
+            and respawnId == state.FakeArmorRespawnId
+            and localPlayer.Character == character
+            and character.Parent
+            and tick() < deadline do
+            local humanoid = character:FindFirstChildOfClass("Humanoid")
+            local rootPart = humanoid and humanoid.RootPart
+            local alive = humanoid
+                and humanoid.Health > 0
+                and humanoid:GetState() ~= Enum.HumanoidStateType.Dead
+                and rootPart
+                and rootPart.Parent
+            if alive then
+                task.wait(0.8)
+                if config.FakeAutoArmorEnabled
+                    and respawnId == state.FakeArmorRespawnId
+                    and localPlayer.Character == character then
+                    buyMediumArmorOnce()
+                end
+                return
+            end
+            task.wait(0.1)
+        end
+    end)
+end
+
+localPlayer.CharacterAdded:Connect(function(character)
+    if character == state.FakeArmorCharacter then return end
+    state.FakeArmorCharacter = character
+    state.HandleFakeArmorRespawn(character)
+end)
+
+createToggle(
+    "Fake Auto Armor",
+    "Buy Medium Armor once after a real respawn",
+    397,
+    config.FakeAutoArmorEnabled,
+    function(value)
+        config.FakeAutoArmorEnabled = value
+        state.FakeArmorRespawnId = state.FakeArmorRespawnId + 1
+        notifyAutoArmorToggle("Fake Auto Armor", value)
+    end,
+    targetPage
+)
+
+createToggle(
+    "Auto Armor Notifications",
+    "Show or hide notifications from every Auto Armor purchase function",
+    457,
+    config.AutoArmorNotifications,
+    function(value)
+        config.AutoArmorNotifications = value
+        if config.TargetSaveSettings then
+            saveSettingWithNotice("AutoArmorNotifications", value, "AUTO ARMOR")
+        end
+    end,
+    targetPage
+)
+
+autoArmorKey = loadAutoArmorKey()
+local function keyFromSetting(name, defaultName)
+    local savedName = loadSetting(name, defaultName)
+    if not savedName or savedName == "" then return nil end
+    local ok, key = pcall(function() return Enum.KeyCode[savedName] end)
+    if ok and key and key ~= Enum.KeyCode.Unknown then return key end
+    return nil
+end
+
+menuKey = keyFromSetting("MenuKey", "T") or Enum.KeyCode.T
+staffCheckKey = config.StaffSaveSettings
+    and keyFromSetting("StaffCheckKey", nil)
+    or nil
+if config.Aim.SaveSettings then
+    config.Aim.TargetKey = keyFromSetting("AimTargetKey", nil)
+    config.Aim.CancelKey = keyFromSetting("AimCancelKey", nil)
+    config.Aim.TriggerKey = keyFromSetting("AimTriggerKey", nil)
+end
+if autoArmorKey and (autoArmorKey == menuKey or autoArmorKey == staffCheckKey) then
+    clearSavedAutoArmorKey()
+    autoArmorKey = nil
+end
+theme.ToggleKey = menuKey
+
+local function menuKeyConflict(key)
+    if key == staffCheckKey then
+        return false, "That key is already used for the active staff check"
+    end
+    if autoArmorKey and key == autoArmorKey then
+        return false, "That key is already used for Auto Armor"
+    end
+    local aimKeys = {
+        Target = config.Aim.TargetKey,
+        Cancel = config.Aim.CancelKey,
+        Trigger = config.Aim.TriggerKey,
+    }
+    for label, assigned in pairs(aimKeys) do
+        if assigned and key == assigned then
+            return false, "That key is already used for " .. label
+        end
+    end
+    return true
+end
+
+local function staffCheckKeyConflict(key)
+    if key == theme.ToggleKey then
+        return false, "That key is already used to toggle Staff Alert"
+    end
+    if autoArmorKey and key == autoArmorKey then
+        return false, "That key is already used for Auto Armor"
+    end
+    return true
+end
+
+-- ======================================================== --
+--  PROFILE PAGE
+-- ======================================================== --
+do
+    local profileTitle = Instance.new("TextLabel", profilePage)
+    profileTitle.BackgroundTransparency = 1
+    profileTitle.Size = UDim2.new(1, 0, 0, 28)
+    profileTitle.Font = Enum.Font.GothamBold
+    profileTitle.Text = "PROFILE"
+    profileTitle.TextColor3 = theme.AccentSecondary
+    profileTitle.TextSize = 15
+    profileTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    local profileCard = Instance.new("Frame", profilePage)
+    profileCard.BackgroundColor3 = theme.BackgroundSecondary
+    profileCard.Position = UDim2.new(0, 0, 0, 38)
+    profileCard.Size = UDim2.new(1, 0, 0, 215)
+    Instance.new("UICorner", profileCard).CornerRadius = UDim.new(0, 14)
+    local profileCardStroke = Instance.new("UIStroke", profileCard)
+    profileCardStroke.Color = Color3.fromRGB(110, 235, 255)
+    profileCardStroke.Thickness = 1
+    profileCardStroke.Transparency = 0.18
+    addGradient(profileCard, Color3.fromRGB(20, 31, 58), Color3.fromRGB(39, 24, 67), 25)
+
+    local profileLargeImage = Instance.new("ImageLabel", profileCard)
+    profileLargeImage.BackgroundColor3 = theme.BackgroundTertiary
+    profileLargeImage.Position = UDim2.new(0, 18, 0.5, -70)
+    profileLargeImage.Size = UDim2.new(0, 140, 0, 140)
+    profileLargeImage.Image = profileImage.Image
+    profileLargeImage.ScaleType = Enum.ScaleType.Crop
+    Instance.new("UICorner", profileLargeImage).CornerRadius = UDim.new(0, 14)
+    local largeImageStroke = Instance.new("UIStroke", profileLargeImage)
+    local isOwner = localPlayer.UserId == 2309457259
+    largeImageStroke.Color = isOwner and Color3.fromRGB(255, 215, 60) or Color3.fromRGB(110, 235, 255)
+    largeImageStroke.Thickness = 2
+
+    local profileName = Instance.new("TextLabel", profileCard)
+    profileName.BackgroundTransparency = 1
+    profileName.Position = UDim2.new(0, 180, 0, 24)
+    profileName.Size = UDim2.new(1, -195, 0, 32)
+    profileName.Font = Enum.Font.GothamBold
+    profileName.Text = localPlayer.DisplayName
+    profileName.TextColor3 = theme.TextPrimary
+    profileName.TextSize = 24
+    profileName.TextXAlignment = Enum.TextXAlignment.Left
+    profileName.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local profileUser = Instance.new("TextLabel", profileCard)
+    profileUser.BackgroundTransparency = 1
+    profileUser.Position = UDim2.new(0, 180, 0, 63)
+    profileUser.Size = UDim2.new(1, -195, 0, 24)
+    profileUser.Font = Enum.Font.GothamMedium
+    profileUser.Text = "@" .. localPlayer.Name
+    profileUser.TextColor3 = theme.TextSecondary
+    profileUser.TextSize = 15
+    profileUser.TextXAlignment = Enum.TextXAlignment.Left
+    profileUser.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local profileId = Instance.new("TextLabel", profileCard)
+    profileId.BackgroundTransparency = 1
+    profileId.Position = UDim2.new(0, 180, 0, 88)
+    profileId.Size = UDim2.new(1, -195, 0, 22)
+    profileId.Font = Enum.Font.GothamMedium
+    profileId.Text = "User ID: " .. tostring(localPlayer.UserId)
+    profileId.TextColor3 = theme.TextSecondary
+    profileId.TextSize = 14
+    profileId.TextXAlignment = Enum.TextXAlignment.Left
+    profileId.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local rankLabel = Instance.new("TextLabel", profileCard)
+    rankLabel.BackgroundTransparency = 1
+    rankLabel.Position = UDim2.new(0, 180, 0, 119)
+    rankLabel.Size = UDim2.new(0, 140, 0, 28)
+    rankLabel.Font = Enum.Font.GothamBold
+    local isAdminUser = isAdmin(localPlayer)
+    rankLabel.Text = isAdminUser and "ADMIN" or (isOwner and "OWNER" or "PREMIUM")
+    rankLabel.TextColor3 = isAdminUser
+        and theme.Admin
+        or Color3.fromRGB(255, 210, 65)
+    rankLabel.TextSize = 18
+    rankLabel.TextXAlignment = Enum.TextXAlignment.Left
+    if isAdminUser or isOwner then
+        local rankGradient = Instance.new("UIGradient", rankLabel)
+        rankGradient.Color = isAdminUser
+            and ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(115, 0, 18)),
+                ColorSequenceKeypoint.new(0.40, Color3.fromRGB(205, 22, 48)),
+                ColorSequenceKeypoint.new(0.49, Color3.fromRGB(255, 190, 200)),
+                ColorSequenceKeypoint.new(0.54, Color3.fromRGB(255, 62, 88)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(125, 0, 20))
+            })
+            or ColorSequence.new(
+                Color3.fromRGB(255, 170, 0),
+                Color3.fromRGB(255, 255, 170),
+                Color3.fromRGB(255, 185, 0)
+            )
+        rankGradient.Rotation = 0
+        task.spawn(function()
+            while rankLabel.Parent do
+                rankGradient.Offset = Vector2.new(-1, 0)
+                tween(rankGradient, {Offset = Vector2.new(1, 0)}, 2.6, Enum.EasingStyle.Linear)
+                task.wait(3.1)
+            end
+        end)
+    end
+
+    task.spawn(function()
+        while profileLargeImage.Parent do
+            if profileImage.Image ~= "" then profileLargeImage.Image = profileImage.Image end
+            task.wait(1)
+        end
+    end)
+
+    createKeybindControl(
+        "Menu Keybind",
+        "Open or close Staff Alert | click again or left-click elsewhere to clear",
+        269,
+        menuKey,
+        function(key)
+            menuKey = key
+            theme.ToggleKey = key
+            saveSettingWithNotice("MenuKey", key and key.Name or "", "MENU KEY")
+            notify("MENU KEY", key and ("Bound to " .. key.Name) or "Keybind cleared", 3, key and "success" or "warning")
+        end,
+        profilePage,
+        menuKeyConflict
+    )
+    profilePage.CanvasSize = UDim2.new(0, 0, 0, 335)
+end
+
+createKeybindControl(
+    "Auto Armor Key",
+    "Press once to buy armor | Backspace/Delete clears",
+    517,
+    autoArmorKey,
+    function(key)
+        autoArmorKey = key
+        autoArmorIgnoreUntil = tick() + 0.25
+        saveAutoArmorKey(key)
+        if config.TargetSaveSettings then
+            saveSettingWithNotice("AutoArmorKey", key and key.Name or "", "AUTO ARMOR")
+        end
+        notify("AUTO ARMOR", key and ("Bound to " .. key.Name) or "Keybind cleared", 3, key and "success" or "warning")
+    end,
+    targetPage,
+    autoArmorKeyConflict
+)
+
+targetPage.CanvasSize = UDim2.new(0, 0, 0, 595)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe or isPlayerTyping() or tick() < autoArmorIgnoreUntil then return end
+    if autoArmorKey and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == autoArmorKey then
+        buyMediumArmorOnce()
+    end
+end)
+
+-- ======================================================== --
+--  AIM PAGE
+-- ======================================================== --
+local aimTitle = Instance.new("TextLabel", aimPage)
+aimTitle.BackgroundTransparency = 1
+aimTitle.Size = UDim2.new(0, 125, 0, 25)
+aimTitle.Font = Enum.Font.GothamBold
+aimTitle.Text = "AIMBOT SETTINGS"
+aimTitle.TextColor3 = theme.AccentSecondary
+aimTitle.TextSize = 14
+aimTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+local function aimKeyConflict(kind)
+    return function(key)
+        if key == theme.ToggleKey then
+            return false, "That key is already used to toggle Staff Alert"
+        end
+        if key == staffCheckKey then
+            return false, "That key is already used for the active staff check"
+        end
+        if autoArmorKey and key == autoArmorKey then
+            return false, "That key is already used for Auto Armor"
+        end
+        if kind ~= "Target" and key == aimConfig.TargetKey then
+            return false, "That key is already used for Target"
+        end
+        if kind ~= "Cancel" and key == aimConfig.CancelKey then
+            return false, "That key is already used for Cancel"
+        end
+        if kind ~= "Trigger" and key == aimConfig.TriggerKey then
+            return false, "That key is already used for Trigger"
+        end
+        return true
+    end
+end
+
+local AIM_COLUMN_WIDTH = 265
+local AIM_COLUMN_GAP = 10
+local AIM_RIGHT_X = AIM_COLUMN_WIDTH + AIM_COLUMN_GAP
+
+local function createAimPanel(title, subtitle, xPos, yPos, height)
+    local panel = Instance.new("Frame", aimPage)
+    panel.BackgroundColor3 = theme.BackgroundSecondary
+    panel.Position = UDim2.new(0, xPos, 0, yPos)
+    panel.Size = UDim2.new(0, AIM_COLUMN_WIDTH, 0, height)
+    panel.ClipsDescendants = true
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+    local stroke = Instance.new("UIStroke", panel)
+    stroke.Color = theme.AccentSecondary
+    stroke.Thickness = 1
+    stroke.Transparency = 0.45
+
+    local heading = Instance.new("TextLabel", panel)
+    heading.BackgroundTransparency = 1
+    heading.Position = UDim2.new(0, 12, 0, 8)
+    heading.Size = UDim2.new(1, -24, 0, 18)
+    heading.Font = Enum.Font.GothamBold
+    heading.Text = title
+    heading.TextColor3 = theme.TextPrimary
+    heading.TextSize = 13
+    heading.TextXAlignment = Enum.TextXAlignment.Left
+
+    local subheading = Instance.new("TextLabel", panel)
+    subheading.BackgroundTransparency = 1
+    subheading.Position = UDim2.new(0, 12, 0, 27)
+    subheading.Size = UDim2.new(1, -24, 0, 16)
+    subheading.Font = Enum.Font.Gotham
+    subheading.Text = subtitle
+    subheading.TextColor3 = theme.TextSecondary
+    subheading.TextSize = 10
+    subheading.TextXAlignment = Enum.TextXAlignment.Left
+    subheading.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local line = Instance.new("Frame", panel)
+    line.BackgroundColor3 = theme.AccentSecondary
+    line.BackgroundTransparency = 0.55
+    line.BorderSizePixel = 0
+    line.Position = UDim2.new(0, 12, 0, 48)
+    line.Size = UDim2.new(1, -24, 0, 1)
+    return panel
+end
+
+local function createAimCheck(parent, name, xPos, yPos, initialValue, callback, width)
+    local row = Instance.new("TextButton", parent)
+    row.BackgroundTransparency = 1
+    row.Position = UDim2.new(0, xPos, 0, yPos)
+    row.Size = UDim2.new(0, width or 280, 0, 25)
+    row.Text = ""
+    row.AutoButtonColor = false
+
+    local box = Instance.new("Frame", row)
+    box.BackgroundColor3 = initialValue and theme.AccentPrimary or theme.BackgroundTertiary
+    box.Position = UDim2.new(0, 0, 0.5, -8)
+    box.Size = UDim2.new(0, 16, 0, 16)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 3)
+    local check = Instance.new("TextLabel", box)
+    check.BackgroundTransparency = 1
+    check.Size = UDim2.new(1, 0, 1, 0)
+    check.Font = Enum.Font.GothamBold
+    check.Text = initialValue and "✓" or ""
+    check.TextColor3 = theme.TextPrimary
+    check.TextSize = 12
+
+    local label = Instance.new("TextLabel", row)
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, 24, 0, 0)
+    label.Size = UDim2.new(1, -24, 1, 0)
+    label.Font = Enum.Font.GothamMedium
+    label.Text = name
+    label.TextColor3 = theme.TextPrimary
+    label.TextSize = 11
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local value = initialValue
+    row.MouseButton1Click:Connect(function()
+        value = not value
+        callback(value)
+        check.Text = value and "✓" or ""
+        tween(box, {BackgroundColor3 = value and theme.AccentPrimary or theme.BackgroundTertiary}, 0.12)
+    end)
+end
+
+local function createAimNumber(parent, name, xPos, yPos, initialValue, minValue, maxValue, callback)
+    local numberWidth = 68
+    local label = Instance.new("TextLabel", parent)
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, xPos, 0, yPos)
+    label.Size = UDim2.new(0, numberWidth, 0, 15)
+    label.Font = Enum.Font.GothamMedium
+    label.Text = name
+    label.TextColor3 = theme.TextSecondary
+    label.TextSize = 10
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local box = Instance.new("TextBox", parent)
+    box.BackgroundColor3 = theme.BackgroundTertiary
+    box.Position = UDim2.new(0, xPos, 0, yPos + 16)
+    box.Size = UDim2.new(0, numberWidth, 0, 25)
+    box.Font = Enum.Font.GothamBold
+    box.Text = tostring(initialValue)
+    box.TextColor3 = theme.TextPrimary
+    box.TextSize = 10
+    box.ClearTextOnFocus = false
+    box.TextXAlignment = Enum.TextXAlignment.Center
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 5)
+
+    box.FocusLost:Connect(function()
+        local value = tonumber(box.Text)
+        if not value then
+            box.Text = tostring(initialValue)
+            return
+        end
+        value = math.clamp(value, minValue, maxValue)
+        initialValue = value
+        box.Text = tostring(value)
+        callback(value)
+    end)
+end
+
+local function createAimInfo(parent, text, xPos, yPos, width)
+    local label = Instance.new("TextLabel", parent)
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, xPos, 0, yPos)
+    label.Size = UDim2.new(0, width or 280, 0, 24)
+    label.Font = Enum.Font.GothamMedium
+    label.Text = text
+    label.TextColor3 = theme.TextSecondary
+    label.TextSize = 10
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.TextWrapped = true
+    return label
+end
+
+local function createAimKey(parent, name, xPos, yPos, initialKey, callback, kind)
+    local label = Instance.new("TextLabel", parent)
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, xPos, 0, yPos)
+    label.Size = UDim2.new(0, 86, 0, 15)
+    label.Font = Enum.Font.GothamMedium
+    label.Text = name
+    label.TextColor3 = theme.TextSecondary
+    label.TextSize = 10
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local button = Instance.new("TextButton", parent)
+    button.BackgroundColor3 = theme.BackgroundTertiary
+    button.Position = UDim2.new(0, xPos, 0, yPos + 16)
+    button.Size = UDim2.new(0, 122, 0, 25)
+    button.Font = Enum.Font.GothamBold
+    button.Text = initialKey and ("[" .. initialKey.Name .. "]") or "[NONE]"
+    button.TextColor3 = theme.TextPrimary
+    button.TextSize = 10
+    button.AutoButtonColor = false
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 5)
+
+    local listening = false
+    local previousText = button.Text
+    local function unbind()
+        if not listening then return end
+        listening = false
+        state.KeybindCapture = false
+        if state.CancelKeybindCapture then state.CancelKeybindCapture = nil end
+        initialKey = nil
+        button.Text = "[NONE]"
+        button.BackgroundColor3 = theme.BackgroundTertiary
+        callback(nil)
+    end
+
+    button.MouseButton1Click:Connect(function()
+        if listening then
+            -- Clicking the active keybind again cancels capture and leaves it unbound.
+            unbind()
+            return
+        end
+        if state.CancelKeybindCapture then state.CancelKeybindCapture() end
+        listening = true
+        state.KeybindCapture = true
+        state.CancelKeybindCapture = unbind
+        previousText = button.Text
+        button.Text = "[PRESS KEY]"
+        button.BackgroundColor3 = theme.AccentSecondary
+    end)
+
+    UserInputService.InputBegan:Connect(function(input)
+        if not listening or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+        if input.KeyCode == Enum.KeyCode.Escape then
+            listening = false
+            state.KeybindCapture = false
+            if state.CancelKeybindCapture == unbind then state.CancelKeybindCapture = nil end
+            button.Text = previousText
+            button.BackgroundColor3 = theme.BackgroundTertiary
+            return
+        end
+        if input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Delete then
+            unbind()
+            return
+        end
+        if input.KeyCode == Enum.KeyCode.Unknown then return end
+
+        local allowed, reason = aimKeyConflict(kind)(input.KeyCode)
+        if allowed == false then
+            button.Text = "[IN USE]"
+            notify("KEYBIND", reason or "That key is already assigned", 3, "warning")
+            task.delay(0.8, function()
+                if listening then button.Text = "[PRESS KEY]" end
+            end)
+            return
+        end
+
+        listening = false
+        state.KeybindCapture = false
+        if state.CancelKeybindCapture == unbind then state.CancelKeybindCapture = nil end
+        initialKey = input.KeyCode
+        button.Text = "[" .. initialKey.Name .. "]"
+        button.BackgroundColor3 = theme.BackgroundTertiary
+        callback(initialKey)
+    end)
+end
+
+local function createAimPartPicker(parent, title, parts, xPos, yPos, allowMultiple, allowedNames, onChanged)
+    local label = Instance.new("TextLabel", parent)
+    label.BackgroundTransparency = 1
+    label.Position = UDim2.new(0, xPos, 0, yPos)
+    label.Size = UDim2.new(0, AIM_COLUMN_WIDTH - 24, 0, 15)
+    label.Font = Enum.Font.GothamMedium
+    label.Text = title
+    label.TextColor3 = theme.TextSecondary
+    label.TextSize = 10
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local selector = Instance.new("TextButton", parent)
+    selector.BackgroundColor3 = theme.BackgroundTertiary
+    selector.Position = UDim2.new(0, xPos, 0, yPos + 18)
+    selector.Size = UDim2.new(0, AIM_COLUMN_WIDTH - 24, 0, 29)
+    selector.Font = Enum.Font.GothamMedium
+    selector.TextColor3 = theme.TextPrimary
+    selector.TextSize = 10
+    selector.TextXAlignment = Enum.TextXAlignment.Left
+    selector.AutoButtonColor = false
+    Instance.new("UICorner", selector).CornerRadius = UDim.new(0, 5)
+
+    local arrow = Instance.new("TextLabel", selector)
+    arrow.BackgroundTransparency = 1
+    arrow.AnchorPoint = Vector2.new(1, 0.5)
+    arrow.Position = UDim2.new(1, -8, 0.5, 0)
+    arrow.Size = UDim2.new(0, 18, 0, 20)
+    arrow.Font = Enum.Font.GothamBold
+    arrow.Text = "▼"
+    arrow.TextColor3 = theme.TextSecondary
+    arrow.TextSize = 9
+
+    local list = Instance.new("Frame", parent)
+    list.BackgroundColor3 = theme.BackgroundTertiary
+    list.Position = UDim2.new(0, xPos, 0, yPos + 50)
+    list.Size = UDim2.new(0, AIM_COLUMN_WIDTH - 24, 0, allowMultiple and 112 or 58)
+    list.Visible = false
+    list.ZIndex = 10
+    Instance.new("UICorner", list).CornerRadius = UDim.new(0, 5)
+    local grid = Instance.new("UIGridLayout", list)
+    grid.CellPadding = UDim2.new(0, 4, 0, 4)
+    grid.CellSize = UDim2.new(0, (AIM_COLUMN_WIDTH - 32) / 2, 0, 32)
+    grid.FillDirectionMaxCells = 2
+    grid.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local labels = {
+        Head = "Head",
+        HumanoidRootPart = "Root Part",
+        UpperTorso = "Upper Torso",
+        LowerTorso = "Lower Torso",
+    }
+    local names = allowedNames or AIM_PART_ORDER
+
+    local function updateSummary()
+        local selectedNames = {}
+        for _, partName in ipairs(names) do
+            if parts[partName] then table.insert(selectedNames, labels[partName]) end
+        end
+        if #selectedNames == 0 then
+            selector.Text = "  None selected"
+        else
+            selector.Text = "  " .. table.concat(selectedNames, ", ")
+        end
+    end
+
+    selector.MouseButton1Click:Connect(function()
+        list.Visible = not list.Visible
+        arrow.Text = list.Visible and "▲" or "▼"
+    end)
+
+    for index, partName in ipairs(names) do
+        local button = Instance.new("TextButton", list)
+        button.ZIndex = 11
+        button.BackgroundColor3 = parts[partName] and theme.AccentPrimary or theme.BackgroundSecondary
+        button.Text = labels[partName]
+        button.Font = Enum.Font.GothamMedium
+        button.TextColor3 = theme.TextPrimary
+        button.TextSize = 10
+        button.TextXAlignment = Enum.TextXAlignment.Left
+        button.AutoButtonColor = false
+        button.LayoutOrder = index
+        Instance.new("UICorner", button).CornerRadius = UDim.new(0, 4)
+
+        button.MouseButton1Click:Connect(function()
+            if allowMultiple then
+                parts[partName] = not parts[partName]
+            else
+                for _, otherName in ipairs(names) do parts[otherName] = false end
+                parts[partName] = true
+            end
+            for _, child in ipairs(list:GetChildren()) do
+                if child:IsA("TextButton") then
+                    local selected = parts[child.Name]
+                    local childName = child:GetAttribute("PartName")
+                    if childName then
+                        selected = parts[childName]
+                        child.Text = labels[childName]
+                        child.BackgroundColor3 = selected and theme.AccentPrimary or theme.BackgroundSecondary
+                    end
+                end
+            end
+            updateSummary()
+            if onChanged then onChanged() end
+        end)
+        button.Name = "Part_" .. partName
+        button:SetAttribute("PartName", partName)
+    end
+    updateSummary()
+end
+
+local function saveAimValue(name, value)
+    if aimConfig.SaveSettings then
+        saveSettingWithNotice(name, value, "AIM SETTINGS")
+    end
+end
+
+-- Universal aim controls stay above the mode panels so they can be rebound
+-- without opening Target Aim first.
+createAimKey(aimPage, "Target Key", 135, 0, aimConfig.TargetKey, function(key)
+    aimConfig.TargetKey = key
+    saveAimValue("AimTargetKey", key and key.Name or "")
+end, "Target")
+createAimKey(aimPage, "Cancel Key", 280, 0, aimConfig.CancelKey, function(key)
+    aimConfig.CancelKey = key
+    saveAimValue("AimCancelKey", key and key.Name or "")
+end, "Cancel")
+createAimCheck(aimPage, "Save Settings", 0, 25, aimConfig.SaveSettings, function(value)
+    aimConfig.SaveSettings = value
+    saveSettingWithNotice("AimSaveSettings", value, "AIM SETTINGS")
+    if value then
+        saveAimValue("AimTargetKey", aimConfig.TargetKey and aimConfig.TargetKey.Name or "")
+        saveAimValue("AimCancelKey", aimConfig.CancelKey and aimConfig.CancelKey.Name or "")
+        saveAimValue("AimTriggerKey", aimConfig.TriggerKey and aimConfig.TriggerKey.Name or "")
+        saveAimValue("TargetAimPredX", aimConfig.TargetAimPrediction.X)
+        saveAimValue("TargetAimPredY", aimConfig.TargetAimPrediction.Y)
+        saveAimValue("TargetAimPredZ", aimConfig.TargetAimPrediction.Z)
+        saveAimValue("SilentPredX", aimConfig.SilentPrediction.X)
+        saveAimValue("SilentPredY", aimConfig.SilentPrediction.Y)
+        saveAimValue("SilentPredZ", aimConfig.SilentPrediction.Z)
+        saveAimValue("CameraPredX", aimConfig.CameraPrediction.X)
+        saveAimValue("CameraPredY", aimConfig.CameraPrediction.Y)
+        saveAimValue("CameraPredZ", aimConfig.CameraPrediction.Z)
+        saveAimValue("CameraFOV", aimGetFOV(aimConfig.CameraFOV))
+        saveAimValue("SilentFOV", aimGetFOV(aimConfig.SilentFOV))
+        saveAimValue("AimTargetParts", encodePartSet(aimConfig.TargetAimParts))
+        saveAimValue("AimCameraParts", encodePartSet(aimConfig.CameraParts))
+        saveAimValue("AimSilentParts", encodePartSet(aimConfig.SilentParts))
+    end
+end, 100)
+createAimCheck(aimPage, "Highlight", 0, 45, aimConfig.AimHighlightEnabled, function(value)
+    aimConfig.AimHighlightEnabled = value
+    aimRefreshHighlight()
+end, 100)
+createAimCheck(aimPage, "Rainbow Highlight", 105, 45, aimConfig.AimRainbowHighlightEnabled, function(value)
+    aimConfig.AimRainbowHighlightEnabled = value
+    aimRainbowStart = tick()
+    aimRefreshHighlight()
+end, 130)
+createAimCheck(aimPage, "Target Notify", 240, 45, aimConfig.AimTargetNotify, function(value)
+    aimConfig.AimTargetNotify = value
+end, 120)
+createAimCheck(aimPage, "Show FOV", 365, 45, aimConfig.ShowFOV, function(value)
+    aimConfig.ShowFOV = value
+    aimUpdateFOVVisualization()
+end, 100)
+
+local targetPanel = createAimPanel(
+    "TARGET AIM",
+    "C selects target  •  Z clears  •  no FOV restriction",
+    0, 80, 430
+)
+createAimCheck(targetPanel, "Enabled", 12, 58, aimConfig.TargetAimEnabled, function(value)
+    aimConfig.TargetAimEnabled = value
+    if not value then aimClearTarget() end
+end)
+createAimCheck(targetPanel, "Anti Lock Resolver", 12, 84, aimConfig.TargetAimResolver, function(value)
+    aimConfig.TargetAimResolver = value
+end)
+createAimNumber(targetPanel, "Pred X", 12, 114, aimConfig.TargetAimPrediction.X, -2, 2,
+    function(value)
+        aimConfig.TargetAimPrediction.X = value
+        saveAimValue("TargetAimPredX", value)
+    end)
+createAimNumber(targetPanel, "Pred Y", 86, 114, aimConfig.TargetAimPrediction.Y, -2, 2,
+    function(value)
+        aimConfig.TargetAimPrediction.Y = value
+        saveAimValue("TargetAimPredY", value)
+    end)
+createAimNumber(targetPanel, "Pred Z", 160, 114, aimConfig.TargetAimPrediction.Z, -2, 2,
+    function(value)
+        aimConfig.TargetAimPrediction.Z = value
+        saveAimValue("TargetAimPredZ", value)
+    end)
+createAimPartPicker(targetPanel, "Hit Part(s)", aimConfig.TargetAimParts, 12, 162, true, nil, function()
+    saveAimValue("AimTargetParts", encodePartSet(aimConfig.TargetAimParts))
+end)
+
+local cameraPanel = createAimPanel(
+    "CAM ASSISTANCE",
+    "Hold RMB  •  cursor FOV required  •  one hit part",
+    AIM_RIGHT_X, 80, 430
+)
+createAimCheck(cameraPanel, "Enabled", 12, 58, aimConfig.CameraEnabled, function(value)
+    aimConfig.CameraEnabled = value
+    if not value then aimRmbHeld = false end
+end)
+createAimCheck(cameraPanel, "Anti Lock Resolver", 12, 84, aimConfig.CameraResolver, function(value)
+    aimConfig.CameraResolver = value
+end)
+createAimInfo(cameraPanel, "Keybind   [RMB]  •  FOV max 100", 154, 66, 180)
+createAimNumber(cameraPanel, "FOV", 12, 114, aimGetFOV(aimConfig.CameraFOV), 1, AIM_FOV_MAX,
+    function(value)
+        aimConfig.CameraFOV = aimGetFOV(value)
+        saveAimValue("CameraFOV", aimConfig.CameraFOV)
+    end)
+createAimNumber(cameraPanel, "Smooth", 86, 114, aimConfig.CameraSmoothing, 0.001, 1,
+    function(value) aimConfig.CameraSmoothing = value end)
+createAimNumber(cameraPanel, "Pred X", 160, 114, aimConfig.CameraPrediction.X, -2, 2,
+    function(value)
+        aimConfig.CameraPrediction.X = value
+        saveAimValue("CameraPredX", value)
+    end)
+createAimNumber(cameraPanel, "Pred Y", 12, 168, aimConfig.CameraPrediction.Y, -2, 2,
+    function(value)
+        aimConfig.CameraPrediction.Y = value
+        saveAimValue("CameraPredY", value)
+    end)
+createAimNumber(cameraPanel, "Pred Z", 86, 168, aimConfig.CameraPrediction.Z, -2, 2,
+    function(value)
+        aimConfig.CameraPrediction.Z = value
+        saveAimValue("CameraPredZ", value)
+    end)
+createAimPartPicker(cameraPanel, "Hit Part", aimConfig.CameraParts, 12, 222, false,
+    {"Head", "HumanoidRootPart"}, function()
+        saveAimValue("AimCameraParts", encodePartSet(aimConfig.CameraParts))
+    end)
+
+local silentPanel = createAimPanel(
+    "SILENT AIM",
+    "Original Loomi behavior  •  cursor FOV required",
+    0, 522, 430
+)
+createAimCheck(silentPanel, "Enabled", 12, 58, aimConfig.SilentEnabled, function(value)
+    aimConfig.SilentEnabled = value
+end)
+createAimCheck(silentPanel, "Anti Lock Resolver", 12, 84, aimConfig.SilentResolver, function(value)
+    aimConfig.SilentResolver = value
+end)
+createAimNumber(silentPanel, "FOV", 12, 114, aimGetFOV(aimConfig.SilentFOV), 1, AIM_FOV_MAX,
+    function(value)
+        aimConfig.SilentFOV = aimGetFOV(value)
+        saveAimValue("SilentFOV", aimConfig.SilentFOV)
+    end)
+createAimNumber(silentPanel, "Pred X", 86, 114, aimConfig.SilentPrediction.X, -2, 2,
+    function(value)
+        aimConfig.SilentPrediction.X = value
+        saveAimValue("SilentPredX", value)
+    end)
+createAimNumber(silentPanel, "Pred Y", 160, 114, aimConfig.SilentPrediction.Y, -2, 2,
+    function(value)
+        aimConfig.SilentPrediction.Y = value
+        saveAimValue("SilentPredY", value)
+    end)
+createAimNumber(silentPanel, "Pred Z", 12, 168, aimConfig.SilentPrediction.Z, -2, 2,
+    function(value)
+        aimConfig.SilentPrediction.Z = value
+        saveAimValue("SilentPredZ", value)
+    end)
+createAimPartPicker(silentPanel, "Hit Part(s)", aimConfig.SilentParts, 12, 222, true, nil, function()
+    saveAimValue("AimSilentParts", encodePartSet(aimConfig.SilentParts))
+end)
+
+local triggerPanel = createAimPanel(
+    "TRIGGERBOT",
+    "V arms it, but it only fires at the C-selected target",
+    AIM_RIGHT_X, 522, 270
+)
+createAimCheck(triggerPanel, "Enabled", 12, 58, aimConfig.TriggerEnabled, function(value)
+    aimConfig.TriggerEnabled = value
+    if not value then aimTriggerActive = false end
+end)
+createAimInfo(triggerPanel, "KO check: always on  •  Loomi BodyEffects.K.O", 12, 88, 280)
+createAimKey(triggerPanel, "Trigger Key", 12, 128, aimConfig.TriggerKey, function(key)
+    aimConfig.TriggerKey = key
+    saveAimValue("AimTriggerKey", key and key.Name or "")
+end, "Trigger")
+createAimInfo(triggerPanel, "Requires a target selected with C.\nPress Z to cancel the target and stop firing.", 12, 190, 280)
+
+aimPage.CanvasSize = UDim2.new(0, 0, 0, 980)
+
+-- ======================================================== --
+--  AUTO KILL PAGE
+-- ======================================================== --
+do
+    local autoKillPage = autoKill.UI.Page
+    local autoKillEnableControl
+    local autoKillTitle = Instance.new("TextLabel", autoKillPage)
+    autoKillTitle.BackgroundTransparency = 1
+    autoKillTitle.Size = UDim2.new(1, 0, 0, 25)
+    autoKillTitle.Font = Enum.Font.GothamBold
+    autoKillTitle.Text = "AUTO KILL"
+    autoKillTitle.TextColor3 = theme.AccentSecondary
+    autoKillTitle.TextSize = 14
+    autoKillTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    autoKill.UI.StatusLabel = Instance.new("TextLabel", autoKillPage)
+    autoKill.UI.StatusLabel.BackgroundTransparency = 1
+    autoKill.UI.StatusLabel.Position = UDim2.new(0, 0, 0, 28)
+    autoKill.UI.StatusLabel.Size = UDim2.new(1, 0, 0, 20)
+    autoKill.UI.StatusLabel.Font = Enum.Font.GothamMedium
+    autoKill.UI.StatusLabel.Text = "Select a player from the list"
+    autoKill.UI.StatusLabel.TextColor3 = theme.TextSecondary
+    autoKill.UI.StatusLabel.TextSize = 11
+    autoKill.UI.StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    autoKill.UI.StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+
+    createSectionHeader(autoKillPage, "AUTO KILL CONTROLS", 50, theme.AccentSecondary)
+    autoKillEnableControl = createToggle("Enable", "Follow, target, and fire at the selected player", 84,
+        autoKill.Config.Enabled, function(value)
+            autoKill.Config.Enabled = value
+            if value then
+                -- Auto Kill owns the weapon while active. Clear and suspend
+                -- every Aim mode so two independent target loops cannot fire.
+                aimClearTarget(false)
+                aimRmbHeld = false
+                aimTriggerActive = false
+                notify("AUTO KILL", "Enabled", 3, "success")
+                autoKill.CaptureLocalPosition()
+                autoKill.HoldUnderground()
+                autoKill.TargetReadyAt = autoKill.Target and (os.clock() + 0.45) or 0
+                if persistentListFrame then
+                    persistentListFrame.Visible = autoKill.Config.ShowPlayerList
+                end
+                if autoKillRefreshPlayerList then
+                    autoKillRefreshPlayerList()
+                end
+                if not autoKill.Target then
+                    autoKill.RefreshTargetOrder()
+                    for _, player in ipairs(autoKill.TargetOrder) do
+                        if autoKill.IsTargetUsable(player) then
+                            autoKill.SetActiveTarget(player)
+                            break
+                        end
+                    end
+                end
+                if not autoKill.Target then
+                    autoKill.SetStatus("Select a player from the list", theme.Warning)
+                else
+                    autoKill.SetStatus("Positioning under " .. getDisplayName(autoKill.Target) .. "...", theme.Warning)
+                end
+            else
+                notify("AUTO KILL", "Disabled", 3, "warning")
+                autoKill.ResetLocalState(true)
+                -- Preserve saved target ids when the submenu's Save Settings
+                -- option is enabled; otherwise disable is a clean reset.
+                if autoKill.Config.SaveSettings then
+                    autoKill.RefreshTargetOrder()
+                else
+                    table.clear(autoKill.SelectedTargets)
+                    table.clear(autoKill.SelectedUserIds)
+                end
+                autoKill.Target = nil
+                autoKill.TargetOrder = {}
+                autoKill.TargetIndex = 0
+                autoKill.SetStatus("Auto Kill disabled", theme.TextSecondary)
+                if autoKillRefreshPlayerList then
+                    autoKillRefreshPlayerList()
+                end
+            end
+        end, autoKillPage)
+    autoKill.UI.EnableControl = autoKillEnableControl
+
+    createToggle("Save Settings", "Save selected targets and Auto Kill predictions", 144,
+        autoKill.Config.SaveSettings, function(value)
+            autoKill.Config.SaveSettings = value
+            saveSettingWithNotice("AutoKillSaveSettings", value, "AUTO KILL")
+            if value then
+                saveAutoKillTargetSelection()
+                saveSettingWithNotice(
+                    "AutoKillPrediction",
+                    autoKill.Config.Prediction,
+                    "AUTO KILL"
+                )
+                saveSettingWithNotice(
+                    "AutoKillSilentPrediction",
+                    autoKill.Config.SilentPrediction,
+                    "AUTO KILL"
+                )
+            end
+        end, autoKillPage)
+
+    autoKillListFrame = Instance.new("Frame", autoKillPage)
+    autoKillListFrame.BackgroundColor3 = theme.BackgroundSecondary
+    autoKillListFrame.Position = UDim2.new(0, 0, 0, 324)
+    autoKillListFrame.Size = UDim2.new(1, 0, 0, 330)
+    -- The usable target list is the compact left-side overlay below.
+    autoKillListFrame.Visible = false
+    Instance.new("UICorner", autoKillListFrame).CornerRadius = UDim.new(0, 12)
+    local autoKillListStroke = Instance.new("UIStroke", autoKillListFrame)
+    autoKillListStroke.Color = theme.AccentSecondary
+    autoKillListStroke.Thickness = 1
+    autoKillListStroke.Transparency = 0.5
+
+    local autoKillListTitle = Instance.new("TextLabel", autoKillListFrame)
+    autoKillListTitle.BackgroundTransparency = 1
+    autoKillListTitle.Position = UDim2.new(0, 12, 0, 8)
+    autoKillListTitle.Size = UDim2.new(1, -24, 0, 20)
+    autoKillListTitle.Font = Enum.Font.GothamBold
+    autoKillListTitle.Text = "TARGET SELECTION  •  CLICK A DISPLAY NAME"
+    autoKillListTitle.TextColor3 = theme.TextPrimary
+    autoKillListTitle.TextSize = 11
+    autoKillListTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+    local autoKillPlayerScroll = Instance.new("ScrollingFrame", autoKillListFrame)
+    autoKillPlayerScroll.BackgroundTransparency = 1
+    autoKillPlayerScroll.Position = UDim2.new(0, 8, 0, 34)
+    autoKillPlayerScroll.Size = UDim2.new(1, -16, 1, -42)
+    autoKillPlayerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    autoKillPlayerScroll.ScrollBarThickness = 4
+    autoKillPlayerScroll.ScrollBarImageColor3 = theme.AccentSecondary
+    autoKillPlayerScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+
+    local autoKillEmptyLabel = Instance.new("TextLabel", autoKillPlayerScroll)
+    autoKillEmptyLabel.BackgroundTransparency = 1
+    autoKillEmptyLabel.Position = UDim2.new(0, 8, 0, 8)
+    autoKillEmptyLabel.Size = UDim2.new(1, -16, 0, 24)
+    autoKillEmptyLabel.Font = Enum.Font.Gotham
+    autoKillEmptyLabel.Text = "No other players are currently in the server."
+    autoKillEmptyLabel.TextColor3 = theme.TextSecondary
+    autoKillEmptyLabel.TextSize = 11
+    autoKillEmptyLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local persistentPlayerGui = Instance.new("ScreenGui")
+    persistentPlayerGui.Name = ids.gui .. "_Players"
+    persistentPlayerGui.ResetOnSpawn = false
+    persistentPlayerGui.IgnoreGuiInset = true
+    persistentPlayerGui.DisplayOrder = 20
+    persistentPlayerGui.Parent = CoreGui.RobloxGui
+    autoKill.UI.PersistentPlayerGui = persistentPlayerGui
+
+    persistentListFrame = Instance.new("Frame", persistentPlayerGui)
+    persistentListFrame.Name = "PersistentPlayerList"
+    persistentListFrame.BackgroundColor3 = theme.BackgroundPrimary
+    persistentListFrame.BackgroundTransparency = 0.12
+    persistentListFrame.Position = UDim2.new(0, 10, 0.5, -180)
+    persistentListFrame.Size = UDim2.new(0, 190, 0, 390)
+    persistentListFrame.Visible = false
+    Instance.new("UICorner", persistentListFrame).CornerRadius = UDim.new(0, 9)
+    local persistentStroke = Instance.new("UIStroke", persistentListFrame)
+    persistentStroke.Color = theme.AccentSecondary
+    persistentStroke.Thickness = 1
+    persistentStroke.Transparency = 0.35
+    autoKill.UI.PersistentListFrame = persistentListFrame
+
+    local persistentStaffCount = Instance.new("TextLabel", persistentListFrame)
+    persistentStaffCount.BackgroundTransparency = 1
+    persistentStaffCount.Position = UDim2.new(0, 10, 0, 31)
+    persistentStaffCount.Size = UDim2.new(1, -18, 0, 18)
+    persistentStaffCount.Font = Enum.Font.GothamBold
+    persistentStaffCount.Text = "STAFF: 0"
+    persistentStaffCount.TextColor3 = theme.Success
+    persistentStaffCount.TextSize = 12
+    persistentStaffCount.TextXAlignment = Enum.TextXAlignment.Left
+    persistentStaffCount.TextTruncate = Enum.TextTruncate.AtEnd
+    autoKill.UI.PersistentStaffCount = persistentStaffCount
+
+    local persistentServerCount = Instance.new("TextLabel", persistentListFrame)
+    persistentServerCount.BackgroundTransparency = 1
+    persistentServerCount.Position = UDim2.new(0, 10, 0, 7)
+    persistentServerCount.Size = UDim2.new(1, -18, 0, 18)
+    persistentServerCount.Font = Enum.Font.GothamBold
+    persistentServerCount.Text = "PLAYERS: 0"
+    persistentServerCount.TextColor3 = theme.Success
+    persistentServerCount.TextSize = 12
+    persistentServerCount.TextXAlignment = Enum.TextXAlignment.Left
+    autoKill.UI.PersistentServerCount = persistentServerCount
+
+    local persistentUndercoverCount = Instance.new("TextLabel", persistentListFrame)
+    persistentUndercoverCount.BackgroundTransparency = 1
+    persistentUndercoverCount.Position = UDim2.new(0, 10, 0, 55)
+    persistentUndercoverCount.Size = UDim2.new(1, -18, 0, 18)
+    persistentUndercoverCount.Font = Enum.Font.GothamBold
+    persistentUndercoverCount.Text = "UNDERCOVER: 0"
+    persistentUndercoverCount.TextColor3 = theme.Warning
+    persistentUndercoverCount.TextSize = 12
+    persistentUndercoverCount.TextXAlignment = Enum.TextXAlignment.Left
+    autoKill.UI.PersistentUndercoverCount = persistentUndercoverCount
+
+    local persistentPlayerScroll = Instance.new("ScrollingFrame", persistentListFrame)
+    persistentPlayerScroll.Name = "Players"
+    persistentPlayerScroll.BackgroundTransparency = 1
+    persistentPlayerScroll.BorderSizePixel = 0
+    persistentPlayerScroll.Position = UDim2.new(0, 8, 0, 82)
+    persistentPlayerScroll.Size = UDim2.new(1, -16, 1, -128)
+    persistentPlayerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    persistentPlayerScroll.ScrollBarThickness = 2
+    persistentPlayerScroll.ScrollBarImageColor3 = theme.AccentSecondary
+    persistentPlayerScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+    autoKill.UI.PersistentPlayerScroll = persistentPlayerScroll
+
+    local persistentAutoKillButton = Instance.new("TextButton", persistentListFrame)
+    persistentAutoKillButton.Name = "AutoKillToggle"
+    persistentAutoKillButton.BackgroundColor3 = theme.BackgroundTertiary
+    persistentAutoKillButton.Position = UDim2.new(0, 8, 1, -38)
+    persistentAutoKillButton.Size = UDim2.new(1, -16, 0, 28)
+    persistentAutoKillButton.Font = Enum.Font.GothamBold
+    persistentAutoKillButton.TextColor3 = theme.TextPrimary
+    persistentAutoKillButton.TextSize = 11
+    persistentAutoKillButton.AutoButtonColor = false
+    Instance.new("UICorner", persistentAutoKillButton).CornerRadius = UDim.new(0, 6)
+    autoKill.UI.PersistentAutoKillButton = persistentAutoKillButton
+
+    local function updatePersistentAutoKillButton()
+        local enabled = autoKill.Config.Enabled
+        persistentAutoKillButton.Text = enabled and "AUTOKILL: ENABLED" or "AUTOKILL: DISABLED"
+        persistentAutoKillButton.BackgroundColor3 = enabled and theme.Success or theme.Warning
+        persistentAutoKillButton.TextColor3 = theme.BackgroundPrimary
+    end
+    autoKill.UI.UpdatePersistentAutoKillButton = updatePersistentAutoKillButton
+    persistentAutoKillButton.MouseButton1Click:Connect(function()
+        if autoKill.UI.EnableControl then
+            autoKill.UI.EnableControl.SetValue(not autoKill.Config.Enabled, true)
+        end
+        updatePersistentAutoKillButton()
+        autoKillRefreshPlayerList()
+    end)
+    updatePersistentAutoKillButton()
+
+    autoKillRefreshPlayerList = function()
+        for _, child in ipairs(autoKillPlayerScroll:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+        for _, child in ipairs(persistentPlayerScroll:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+
+        local players = {}
+        local mainCount, undercoverCount, possibleCount = 0, 0, 0
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= localPlayer then
+                table.insert(players, player)
+                local mains = getMainMemberships(player)
+                local possible = getPossibleMemberships(player)
+                local inMain = #mains > 0
+                if inMain then mainCount += 1 end
+                if isUndercover(player, inMain) then undercoverCount += 1 end
+                if #possible > 0 then possibleCount += 1 end
+            end
+        end
+        table.sort(players, function(a, b)
+            return a.DisplayName:lower() < b.DisplayName:lower()
+        end)
+        autoKill.RefreshTargetOrder()
+
+        autoKillEmptyLabel.Visible = #players == 0
+        local function playerStatus(player)
+            if player == autoKill.Target then return "Locked: firing" end
+            if autoKill.IsSelected(player) then return "Selected target" end
+            return "Available"
+        end
+        for index, player in ipairs(players) do
+            local row = Instance.new("TextButton", autoKillPlayerScroll)
+            row.Name = "AutoKillTarget_" .. tostring(player.UserId)
+            row.Position = UDim2.new(0, 0, 0, (index - 1) * 44)
+            row.Size = UDim2.new(1, -8, 0, 39)
+            row.BackgroundColor3 = autoKill.IsSelected(player)
+                and Color3.fromRGB(22, 75, 55)
+                or (player == autoKill.Target
+                    and theme.AccentPrimary
+                    or theme.BackgroundTertiary)
+            row.Font = Enum.Font.GothamMedium
+            row.Text = "  " .. getDisplayName(player) .. "\n  " .. playerStatus(player)
+            row.TextColor3 = theme.TextPrimary
+            row.TextSize = 11
+            row.TextXAlignment = Enum.TextXAlignment.Left
+            row.TextYAlignment = Enum.TextYAlignment.Top
+            row.TextTruncate = Enum.TextTruncate.AtEnd
+            row.AutoButtonColor = false
+            Instance.new("UICorner", row).CornerRadius = UDim.new(0, 7)
+
+            row.MouseButton1Click:Connect(function()
+                if not player.Parent then return end
+                autoKill.ToggleSelectedTarget(player)
+                autoKillRefreshPlayerList()
+            end)
+
+            local compactRow = Instance.new("TextButton", persistentPlayerScroll)
+            compactRow.Name = "Player_" .. tostring(player.UserId)
+            compactRow.Position = UDim2.new(0, 0, 0, (index - 1) * 40)
+            compactRow.Size = UDim2.new(1, -4, 0, 36)
+            compactRow.BackgroundColor3 = autoKill.IsSelected(player)
+                and Color3.fromRGB(22, 75, 55)
+                or (player == autoKill.Target
+                    and theme.AccentPrimary
+                    or theme.BackgroundSecondary)
+            compactRow.BackgroundTransparency = 0.05
+            compactRow.Font = Enum.Font.GothamMedium
+            compactRow.Text = "  " .. getDisplayName(player) .. "\n  " .. playerStatus(player)
+            compactRow.TextColor3 = theme.TextPrimary
+            compactRow.TextSize = 13
+            compactRow.TextXAlignment = Enum.TextXAlignment.Left
+            compactRow.TextYAlignment = Enum.TextYAlignment.Top
+            compactRow.TextTruncate = Enum.TextTruncate.AtEnd
+            compactRow.AutoButtonColor = false
+            Instance.new("UICorner", compactRow).CornerRadius = UDim.new(0, 5)
+            compactRow.MouseButton1Click:Connect(function()
+                if not player.Parent then return end
+                autoKill.ToggleSelectedTarget(player)
+                autoKillRefreshPlayerList()
+            end)
+        end
+        autoKillPlayerScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(0, #players * 44))
+        persistentPlayerScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(0, #players * 40))
+        persistentStaffCount.Text = "STAFF: " .. tostring(mainCount)
+        persistentServerCount.Text = "PLAYERS: " .. tostring(#players)
+        persistentUndercoverCount.Text = "UNDERCOVER: " .. tostring(undercoverCount)
+        updatePersistentAutoKillButton()
+    end
+
+    createToggle("Show Player List", "Show display names on the left side of the screen", 204,
+        autoKill.Config.ShowPlayerList, function(value)
+            autoKill.Config.ShowPlayerList = value
+            -- The player list intentionally never renders inside the menu.
+            autoKillListFrame.Visible = false
+            persistentListFrame.Visible = value
+            if value then autoKillRefreshPlayerList() end
+            if autoKill.UI.UpdatePersistentAutoKillButton then
+                autoKill.UI.UpdatePersistentAutoKillButton()
+            end
+        end, autoKillPage)
+
+    createSectionHeader(autoKillPage, "TARGET PREDICTION", 270, theme.Success)
+    createAimNumber(
+        autoKillPage,
+        "Target Pred",
+        12,
+        294,
+        autoKill.Config.Prediction,
+        -2,
+        2,
+        function(value)
+            autoKill.Config.Prediction = value
+            if autoKill.Config.SaveSettings then
+                saveSettingWithNotice("AutoKillPrediction", value, "AUTO KILL")
+            end
+        end
+    )
+    createAimCheck(autoKillPage, "Anti Lock Resolver", 12, 338,
+        autoKill.Config.Resolver, function(value)
+            autoKill.Config.Resolver = value
+        end)
+
+    createButton("Clear Auto Kill Target", "Stop following and clear the separate target", 382,
+        function()
+            table.clear(autoKill.SelectedTargets)
+            table.clear(autoKill.SelectedUserIds)
+            saveAutoKillTargetSelection()
+            autoKill.SetActiveTarget(nil)
+            autoKill.SetStatus("Select a player from the list", theme.TextSecondary)
+            autoKillRefreshPlayerList()
+        end, autoKillPage)
+
+    createToggle(
+        "Silent Auto Kill",
+        "Add a second target-positioned shot using the Auto Kill target",
+        478,
+        autoKill.Config.SilentEnabled,
+        function(value)
+            autoKill.Config.SilentEnabled = value
+            autoKill.SilentFirePosition = nil
+        end,
+        autoKillPage
+    )
+
+    createAimNumber(
+        autoKillPage,
+        "Silent Pred",
+        12,
+        542,
+        autoKill.Config.SilentPrediction,
+        -2,
+        2,
+        function(value)
+            autoKill.Config.SilentPrediction = value
+            if autoKill.Config.SaveSettings then
+                saveSettingWithNotice("AutoKillSilentPrediction", value, "AUTO KILL")
+            end
+        end
+    )
+    createAimInfo(
+        autoKillPage,
+        "Silent Auto Kill uses the same selected target while Auto Kill owns the weapon.",
+        12,
+        586,
+        280
+    )
+
+    Players.PlayerAdded:Connect(function(player)
+        -- UserIds survive a leave/rejoin cycle even though the Player
+        -- instance itself is replaced.
+        autoKill.LeavingUserIds[player.UserId] = nil
+        if autoKill.IsSelected(player) then
+            autoKill.SelectedTargets[player] = true
+        end
+        task.defer(autoKillRefreshPlayerList)
+        if autoKill.Config.Enabled and autoKill.IsSelected(player) and not autoKill.Target then
+            autoKill.SetActiveTarget(player)
+        end
+    end)
+    Players.PlayerRemoving:Connect(function(player)
+        -- Keep the UserId selected while the Player instance is gone. The
+        -- replacement Player object will be selected automatically on rejoin.
+        if player == autoKill.Target then
+            if not autoKill.AdvanceAfterPlayerLeaves(player) then
+                autoKill.HoldUnderground()
+            end
+        else
+            autoKill.SelectedTargets[player] = nil
+            autoKill.LeavingUserIds[player.UserId] = true
+        end
+        task.defer(autoKillRefreshPlayerList)
+    end)
+    autoKillPage:GetPropertyChangedSignal("Visible"):Connect(function()
+        if autoKillPage.Visible then autoKillRefreshPlayerList() end
+    end)
+    autoKillRefreshPlayerList()
+    persistentListFrame.Visible = autoKill.Config.ShowPlayerList
+    task.spawn(function()
+        while persistentPlayerGui.Parent do
+            task.wait(5)
+            if persistentListFrame.Visible then
+                autoKillRefreshPlayerList()
+            end
+        end
+    end)
+    autoKillPage.CanvasSize = UDim2.new(0, 0, 0, 650)
+end
 
 -- Staff Settings
 local l1 = Instance.new("TextLabel", staffPage)
@@ -1117,31 +4519,73 @@ l1.BackgroundTransparency = 1
 l1.Size = UDim2.new(1, 0, 0, 25)
 l1.Font = Enum.Font.GothamBold
 -- xx Subtitle staff alerts
-l1.Text = "STAFF ALERT SETTINGS"
+l1.Text = "STAFF ALERTS"
 l1.TextColor3 = theme.AccentSecondary
 l1.TextSize = 14
 l1.TextXAlignment = Enum.TextXAlignment.Left
 
-createToggle("Staff ESP", "Highlights staff members through walls", 30, config.StaffESPEnabled, function(v)
+createSectionHeader(staffPage, "ALERTS & PROTECTION", 30, theme.AccentSecondary)
+createToggle("Staff ESP", "Highlights staff members through walls", 62, config.StaffESPEnabled, function(v)
     config.StaffESPEnabled = v
+    if config.StaffSaveSettings then
+        saveSettingWithNotice("StaffESPEnabled", v, "STAFF SETTINGS")
+    end
     for _, f in ipairs({state.StaffESPFolder, state.UndercoverESPFolder, state.PossibleESPFolder}) do
         for _, h in ipairs(f:GetChildren()) do if h:IsA("Highlight") then h.Enabled = v end end
     end
 end, staffPage)
 
-createToggle("Staff Notification Alerts", "Receive notification alerts for staff members", 90, config.NotificationsEnabled, function(v)
+createToggle("Staff Notification Alerts", "Receive notification alerts for staff members", 122, config.NotificationsEnabled, function(v)
     config.NotificationsEnabled = v
+    if config.StaffSaveSettings then
+        saveSettingWithNotice("NotificationsEnabled", v, "STAFF SETTINGS")
+    end
 end, staffPage)
 
-createToggle("Staff Sound Alerts", "Receive sound alerts for staff members", 150, config.SoundsEnabled, function(v)
+createToggle("Staff Sound Alerts", "Receive sound alerts for staff members", 182, config.SoundsEnabled, function(v)
     config.SoundsEnabled = v
+    if config.StaffSaveSettings then
+        saveSettingWithNotice("SoundsEnabled", v, "STAFF SETTINGS")
+    end
 end, staffPage)
 
--- F1 / Check Active Staff
--- F1 / Check Active Staff -- always fires regardless of NotificationsEnabled.
+createToggle("Auto Kick Staff", "Leave automatically when staff or undercover joins", 242,
+    config.AutoKickEnabled, function(v)
+        config.AutoKickEnabled = v
+        if config.StaffSaveSettings then
+            saveSettingWithNotice("AutoKickEnabled", v, "STAFF SETTINGS")
+        end
+        autoKickTriggered = false
+        notify(
+            "AUTO KICK",
+            v and "Enabled — staff and undercover joins will leave this server."
+                or "Disabled",
+            3,
+            v and "success" or "warning"
+        )
+        if v then
+            task.spawn(checkExistingPlayersForAutoKick)
+        end
+    end, staffPage)
+
+createToggle("Save Settings", "Save Staff Alerts settings, including Auto Kick", 302,
+    config.StaffSaveSettings, function(value)
+        config.StaffSaveSettings = value
+        saveSettingWithNotice("StaffSaveSettings", value, "STAFF SETTINGS")
+        if value then
+            saveSettingWithNotice("StaffESPEnabled", config.StaffESPEnabled, "STAFF SETTINGS")
+            saveSettingWithNotice("NotificationsEnabled", config.NotificationsEnabled, "STAFF SETTINGS")
+            saveSettingWithNotice("SoundsEnabled", config.SoundsEnabled, "STAFF SETTINGS")
+            saveSettingWithNotice("AutoKickEnabled", config.AutoKickEnabled, "STAFF SETTINGS")
+            saveSettingWithNotice("StaffCheckKey", staffCheckKey and staffCheckKey.Name or "", "STAFF SETTINGS")
+        end
+    end, staffPage)
+
+-- Manual / Check Active Staff
+-- The configured staff-check key always fires regardless of NotificationsEnabled.
 -- Results are shown in priority order: Main > Undercover > Possible Staff.
 local function showStaffNotification()
-    local mainLines, undLines, possLines = {}, {}, {}
+    local adminLines, mainLines, undLines, possLines = {}, {}, {}, {}
 
     for _, p in ipairs(Players:GetPlayers()) do
         local mains      = getMainMemberships(p)
@@ -1149,33 +4593,58 @@ local function showStaffNotification()
         local inMain     = #mains > 0
         local inPossible = #possible > 0
         local isU        = isUndercover(p, inMain)
-        local category   = getPlayerCategory(inMain, isU, inPossible)
+        local isA        = isAdmin(p)
+        local category   = getPlayerCategory(inMain, isU, inPossible, isA)
         if not category then continue end
 
-        -- F1 is intentionally compact: names only, so every active player fits.
+        -- The staff check is intentionally compact: names only, so every active player fits.
         local line = p.DisplayName .. " (@" .. p.Name .. ")"
 
-        if     category == "main"       then table.insert(mainLines, line)
+        if     category == "admin"      then table.insert(adminLines, line)
+        elseif category == "main"       then table.insert(mainLines, line)
         elseif category == "undercover" then table.insert(undLines,  line)
         else                                 table.insert(possLines, line)
         end
     end
 
     local allLines = {}
+    for _, l in ipairs(adminLines) do table.insert(allLines, "ADMIN • " .. l) end
     for _, l in ipairs(mainLines) do table.insert(allLines, l) end
     for _, l in ipairs(undLines)  do table.insert(allLines, l) end
     for _, l in ipairs(possLines) do table.insert(allLines, l) end
 
     if #allLines > 0 then
-        notify("STAFF IN SERVER", table.concat(allLines, "\n"), 8, nil, theme.StaffPresent, true, #allLines)
+        local hasAdmin = #adminLines > 0
+        notify(
+            hasAdmin and "ADMIN / STAFF IN SERVER" or "STAFF IN SERVER",
+            table.concat(allLines, "\n"),
+            8,
+            nil,
+            hasAdmin and theme.Admin or theme.StaffPresent,
+            true,
+            #allLines
+        )
     else
         notify("STAFF IN SERVER", "No staff or undercover players currently in the server.", 4, "success", nil, true)
     end
 end
 
-createButton("Check Active Staff", "Lists staff and undercover players currently in server", 210, function()
-    showStaffNotification()
-end, staffPage)
+createKeybindControl(
+    "Check Active Staff Key",
+    "Press this key to list staff and undercover players | default: unbound",
+    372,
+    staffCheckKey,
+    function(key)
+        staffCheckKey = key
+        if config.StaffSaveSettings then
+            saveSettingWithNotice("StaffCheckKey", key and key.Name or "", "STAFF CHECK")
+        end
+        notify("STAFF CHECK", key and ("Bound to " .. key.Name) or "Keybind cleared", 3, key and "success" or "warning")
+    end,
+    staffPage,
+    staffCheckKeyConflict
+)
+staffPage.CanvasSize = UDim2.new(0, 0, 0, 440)
 
 
 -- ======================================================== --
@@ -1277,6 +4746,22 @@ local function slAddRow(sf, idx, nameText, detailText, color)
     nameLbl.TextSize = 15
     nameLbl.TextXAlignment = Enum.TextXAlignment.Left
     nameLbl.TextTruncate   = Enum.TextTruncate.AtEnd
+    if color == theme.Admin then
+        local flint = Instance.new("UIGradient", nameLbl)
+        flint.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 0, 18)),
+            ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 55, 75)),
+            ColorSequenceKeypoint.new(0.55, Color3.fromRGB(255, 220, 225)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(135, 0, 20)),
+        })
+        task.spawn(function()
+            while nameLbl.Parent do
+                flint.Offset = Vector2.new(-1, 0)
+                tween(flint, {Offset = Vector2.new(1, 0)}, 1.7, Enum.EasingStyle.Linear)
+                task.wait(1.9)
+            end
+        end)
+    end
 
     local detailLbl = Instance.new("TextLabel", row)
     detailLbl.BackgroundTransparency = 1
@@ -1302,7 +4787,7 @@ local function slPopulate(entries, sf, emptyLbl, color, hdr, title)
     slClear(sf)
     emptyLbl.Visible = (#entries == 0)
     for i, e in ipairs(entries) do
-        slAddRow(sf, i, e.display, e.detail, color)
+        slAddRow(sf, i, e.display, e.detail, e.color or color)
     end
     -- Set CanvasSize explicitly so the ScrollingFrame knows how tall the content is
     local totalH = #entries * SL_STRIDE + 12
@@ -1374,12 +4859,20 @@ local function refreshStaffList()
         local inMain     = #mains > 0
         local inPossible = #possible > 0
         local isU        = isUndercover(p, inMain)
-        local category   = getPlayerCategory(inMain, isU, inPossible)
+        local isA        = isAdmin(p)
+        local category   = getPlayerCategory(inMain, isU, inPossible, isA)
         if not category then continue end
 
-        local nameText = p.DisplayName .. " (@" .. p.Name .. ")"
+        local nameText = getDisplayName(p) .. " (@" .. p.Name .. ")"
 
-        if inMain then
+        if category == "admin" then
+            table.insert(mainEntries, {
+                name = p.Name,
+                display = nameText,
+                detail = "ADMIN • RED FLINT ACCESS",
+                color = theme.Admin,
+            })
+        elseif inMain then
             local mainParts = {}
             for _, m in ipairs(mains) do table.insert(mainParts, getGroupName(m.id) .. ": " .. m.role) end
             local detail = table.concat(mainParts, "  |  ")
@@ -1424,6 +4917,7 @@ end)
 -- Returns true if a player is relevant to the staff list.
 -- Used so we only refresh the list when someone who matters joins or leaves.
 local function isRelevantPlayer(p)
+    if isAdmin(p) then return true end
     if UNDERCOVER_USERIDS[p.UserId] then return true end
     for _, gid in ipairs(MAIN_GROUP_IDS) do
         local ok, inMain = pcall(function() return p:IsInGroup(gid) end)
@@ -1440,16 +4934,18 @@ end
 -- ======================================================== --
 --  MULTI-TARGET FLING INTEGRATION
 -- ======================================================== --
-local SelectedTargets = {}
-local PlayerCheckboxes = {}
-local FlingActive = false
-local UndergroundFlingEnabled = false
-local UNDERGROUND_DROP = 200
+do
+SelectedTargets = {}
+SelectedTargets.UserIds = {}
+PlayerCheckboxes = {}
+FlingActive = false
+UndergroundFlingEnabled = false
+UNDERGROUND_DROP = 200
 getgenv().OldPos = nil
 getgenv().FlingOrigin = nil
 getgenv().FPDH = workspace.FallenPartsDestroyHeight
 
-local ft = Instance.new("TextLabel", flingPage)
+ft = Instance.new("TextLabel", flingPage)
 ft.BackgroundTransparency = 1
 ft.Size = UDim2.new(1, 0, 0, 30)
 ft.Font = Enum.Font.GothamBold
@@ -1458,7 +4954,7 @@ ft.TextColor3 = theme.AccentSecondary
 ft.TextSize = 14
 ft.TextXAlignment = Enum.TextXAlignment.Left
 
-local flingStatus = Instance.new("TextLabel", flingPage)
+flingStatus = Instance.new("TextLabel", flingPage)
 flingStatus.BackgroundTransparency = 1
 flingStatus.Position = UDim2.new(0, 0, 0, 30)
 flingStatus.Size = UDim2.new(0.48, 0, 0, 20)
@@ -1468,7 +4964,7 @@ flingStatus.TextColor3 = theme.TextPrimary
 flingStatus.TextSize = 12
 flingStatus.TextXAlignment = Enum.TextXAlignment.Left
 
-local function makeFlingBtn(text, posScale, yOffset, color, parent)
+function makeFlingBtn(text, posScale, yOffset, color, parent)
     local b = Instance.new("TextButton", parent)
     b.BackgroundColor3 = color
     b.Position = UDim2.new(posScale, 0, 0, yOffset)
@@ -1481,38 +4977,38 @@ local function makeFlingBtn(text, posScale, yOffset, color, parent)
     return b
 end
 
-local startFlingBtn  = makeFlingBtn("START FLING",  0,    60,  Color3.fromRGB(0, 150, 0), flingPage)
-local stopFlingBtn   = makeFlingBtn("STOP FLING",   0.52, 60,  theme.Warning,             flingPage)
-local undergroundFlingBtn = makeFlingBtn("UNDERGROUND: OFF", 0.52, 25, theme.BackgroundTertiary, flingPage)
+startFlingBtn  = makeFlingBtn("START FLING",  0,    60,  Color3.fromRGB(0, 150, 0), flingPage)
+stopFlingBtn   = makeFlingBtn("STOP FLING",   0.52, 60,  theme.Warning,             flingPage)
+undergroundFlingBtn = makeFlingBtn("UNDERGROUND: OFF", 0.52, 25, theme.BackgroundTertiary, flingPage)
 undergroundFlingBtn.Font = Enum.Font.Gotham
 undergroundFlingBtn.TextSize = 11
-local selectAllBtn   = makeFlingBtn("SELECT ALL",   0,    105, theme.BackgroundTertiary,  flingPage)
-local deselectAllBtn = makeFlingBtn("DESELECT ALL", 0.52, 105, theme.BackgroundTertiary,  flingPage)
+selectAllBtn   = makeFlingBtn("SELECT ALL",   0,    105, theme.BackgroundTertiary,  flingPage)
+deselectAllBtn = makeFlingBtn("DESELECT ALL", 0.52, 105, theme.BackgroundTertiary,  flingPage)
 selectAllBtn.Font  = Enum.Font.Gotham
 deselectAllBtn.Font = Enum.Font.Gotham
 
-local pListFrame = Instance.new("Frame", flingPage)
+pListFrame = Instance.new("Frame", flingPage)
 pListFrame.BackgroundColor3 = theme.BackgroundSecondary
 pListFrame.Position = UDim2.new(0, 0, 0, 150)
 pListFrame.Size = UDim2.new(1, 0, 0, 200)
 Instance.new("UICorner", pListFrame).CornerRadius = UDim.new(0, 12)
-local pListStroke = Instance.new("UIStroke", pListFrame)
+pListStroke = Instance.new("UIStroke", pListFrame)
 pListStroke.Color = theme.AccentSecondary
 pListStroke.Thickness = 1
 pListStroke.Transparency = 0.5
 
-local pScroll = Instance.new("ScrollingFrame", pListFrame)
+pScroll = Instance.new("ScrollingFrame", pListFrame)
 pScroll.BackgroundTransparency = 1
 pScroll.Position = UDim2.new(0, 5, 0, 5)
 pScroll.Size = UDim2.new(1, -10, 1, -10)
 pScroll.ScrollBarThickness = 4
 pScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 
-local function getFlingOrigin()
+function getFlingOrigin()
     return getgenv().FlingOrigin or getgenv().OldPos
 end
 
-local function releaseUndergroundHold()
+function releaseUndergroundHold()
     local character = localPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = humanoid and humanoid.RootPart
@@ -1520,7 +5016,7 @@ local function releaseUndergroundHold()
     if hold then hold:Destroy() end
 end
 
-local function moveCharacterUnderground()
+function moveCharacterUnderground()
     local character = localPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = humanoid and humanoid.RootPart
@@ -1545,7 +5041,7 @@ local function moveCharacterUnderground()
     hold.Position = hiddenCFrame.Position
 end
 
-local function forceRespawnAtSpawn()
+function forceRespawnAtSpawn()
     releaseUndergroundHold()
     getgenv().OldPos = nil
     getgenv().FlingOrigin = nil
@@ -1563,13 +5059,13 @@ local function forceRespawnAtSpawn()
     end
 end
 
-local function restoreCharacterToOrigin()
+function restoreCharacterToOrigin(originOverride)
     releaseUndergroundHold()
 
     local character = localPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local rootPart = humanoid and humanoid.RootPart
-    local origin = getFlingOrigin()
+    local origin = originOverride or getFlingOrigin()
     if rootPart and origin then
         local safeCFrame = origin * CFrame.new(0, 3, 0)
         rootPart.CFrame = safeCFrame
@@ -1593,7 +5089,7 @@ undergroundFlingBtn.MouseButton1Click:Connect(function()
     end
 end)
 
-local function SkidFling(TargetPlayer)
+function SkidFling(TargetPlayer)
     local Character = localPlayer.Character
     local Humanoid  = Character and Character:FindFirstChildOfClass("Humanoid")
     local RootPart  = Humanoid and Humanoid.RootPart
@@ -1704,13 +5200,13 @@ local function SkidFling(TargetPlayer)
     end
 end
 
-local function CountSelectedTargets()
+function CountSelectedTargets()
     local c = 0
-    for _ in pairs(SelectedTargets) do c = c + 1 end
+    for _ in pairs(SelectedTargets.UserIds) do c = c + 1 end
     return c
 end
 
-local function UpdateFlingStatus()
+function UpdateFlingStatus()
     local c = CountSelectedTargets()
     if FlingActive then
         flingStatus.Text = "Flinging " .. c .. " target(s)"
@@ -1721,7 +5217,7 @@ local function UpdateFlingStatus()
     end
 end
 
-local function RefreshFlingList()
+function RefreshFlingList()
     for _, c in pairs(pScroll:GetChildren()) do
         if c:IsA("Frame") then c:Destroy() end
     end
@@ -1753,14 +5249,14 @@ local function RefreshFlingList()
             cm.Text = "✓"
             cm.TextColor3 = theme.Success
             cm.TextSize = 14
-            cm.Visible = SelectedTargets[p.Name] ~= nil
+            cm.Visible = SelectedTargets.UserIds[p.UserId] == true
 
             local nameLbl = Instance.new("TextLabel", entry)
             nameLbl.BackgroundTransparency = 1
             nameLbl.Position = UDim2.new(0, 30, 0, 0)
             nameLbl.Size = UDim2.new(1, -35, 1, 0)
             nameLbl.Font = Enum.Font.Gotham
-            nameLbl.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+            nameLbl.Text = getDisplayName(p) .. " (@" .. p.Name .. ")"
             nameLbl.TextColor3 = theme.TextSecondary
             nameLbl.TextSize = 12
             nameLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -1772,11 +5268,13 @@ local function RefreshFlingList()
             clicker.ZIndex = 2
 
             clicker.MouseButton1Click:Connect(function()
-                if SelectedTargets[p.Name] then
+                if SelectedTargets.UserIds[p.UserId] then
                     SelectedTargets[p.Name] = nil
+                    SelectedTargets.UserIds[p.UserId] = nil
                     cm.Visible = false
                 else
                     SelectedTargets[p.Name] = p
+                    SelectedTargets.UserIds[p.UserId] = true
                     cm.Visible = true
                 end
                 UpdateFlingStatus()
@@ -1789,16 +5287,18 @@ local function RefreshFlingList()
     pScroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
 end
 
-local function ToggleAll(sel)
+function ToggleAll(sel)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= localPlayer then
             local data = PlayerCheckboxes[p.Name]
             if data then
                 if sel then
                     SelectedTargets[p.Name] = p
+                    SelectedTargets.UserIds[p.UserId] = true
                     data.Checkmark.Visible = true
                 else
                     SelectedTargets[p.Name] = nil
+                    SelectedTargets.UserIds[p.UserId] = nil
                     data.Checkmark.Visible = false
                 end
             end
@@ -1832,11 +5332,11 @@ startFlingBtn.MouseButton1Click:Connect(function()
     task.spawn(function()
         while FlingActive do
             local valid = {}
-            for name, p in pairs(SelectedTargets) do
-                if p and p.Parent then valid[name] = p
-                else
-                    SelectedTargets[name] = nil
-                    if PlayerCheckboxes[name] then PlayerCheckboxes[name].Checkmark.Visible = false end
+            for userId in pairs(SelectedTargets.UserIds) do
+                local p = Players:GetPlayerByUserId(userId)
+                if p and p.Parent then
+                    valid[userId] = p
+                    SelectedTargets[p.Name] = p
                 end
             end
             for _, p in pairs(valid) do
@@ -1851,6 +5351,7 @@ end)
 
 stopFlingBtn.MouseButton1Click:Connect(function()
     if not FlingActive then return end
+    local savedOrigin = getFlingOrigin()
     FlingActive = false
     UpdateFlingStatus()
     notify("FLING", "Fling stopped", 3, "success")
@@ -1858,19 +5359,29 @@ stopFlingBtn.MouseButton1Click:Connect(function()
     if UndergroundFlingEnabled then
         forceRespawnAtSpawn()
     else
-        restoreCharacterToOrigin()
+        -- Let the active fling coroutine finish its current physics step, then
+        -- re-apply the saved CFrame for a few frames so it cannot leave us airborne.
+        task.spawn(function()
+            for _ = 1, 5 do
+                task.wait(0.1)
+                restoreCharacterToOrigin(savedOrigin)
+            end
+        end)
     end
 end)
 
 selectAllBtn.MouseButton1Click:Connect(function() ToggleAll(true) end)
 deselectAllBtn.MouseButton1Click:Connect(function() ToggleAll(false) end)
 
-Players.PlayerAdded:Connect(function()
+Players.PlayerAdded:Connect(function(player)
+    if SelectedTargets.UserIds[player.UserId] then
+        SelectedTargets[player.Name] = player
+    end
     task.wait(1)
     RefreshFlingList()
 end)
 Players.PlayerRemoving:Connect(function(p)
-    if SelectedTargets[p.Name] then SelectedTargets[p.Name] = nil end
+    SelectedTargets[p.Name] = nil
     RefreshFlingList()
     UpdateFlingStatus()
 end)
@@ -1885,27 +5396,42 @@ task.spawn(function()
         pcall(UpdateFlingStatus)
     end
 end)
+end
 
 -- Dragging logic
-local dragging, dragInput, dragStart, startPos
+local dragState = {
+    dragging = false,
+    dragInput = nil,
+    dragStart = nil,
+    startPos = nil,
+}
 main.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging  = true
-        dragStart = input.Position
-        startPos  = main.Position
+        dragState.dragging = true
+        dragState.dragStart = input.Position
+        dragState.startPos = main.Position
     end
 end)
 main.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then dragInput = input end
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragState.dragInput = input
+    end
 end)
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    if input == dragState.dragInput and dragState.dragging then
+        local delta = input.Position - dragState.dragStart
+        main.Position = UDim2.new(
+            dragState.startPos.X.Scale,
+            dragState.startPos.X.Offset + delta.X,
+            dragState.startPos.Y.Scale,
+            dragState.startPos.Y.Offset + delta.Y
+        )
     end
 end)
 UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragState.dragging = false
+    end
 end)
 
 -- Toggle Menu visibility
@@ -1932,6 +5458,52 @@ local function showPremiumIntro()
     backdropGradient.Rotation = 135
     tween(backdrop, {BackgroundTransparency = 0.04}, 0.45)
 
+    local ambient = Instance.new("Frame", splash)
+    ambient.BackgroundTransparency = 1
+    ambient.Size = UDim2.new(1, 0, 1, 0)
+    ambient.ZIndex = 2
+    ambient.ClipsDescendants = true
+
+    for i = 1, 42 do
+        local star = Instance.new("Frame", ambient)
+        local starSize = math.random(1, 3)
+        star.BackgroundColor3 = (i % 3 == 0) and Color3.fromRGB(180, 135, 255) or Color3.fromRGB(100, 225, 255)
+        star.BackgroundTransparency = math.random(45, 85) / 100
+        star.BorderSizePixel = 0
+        star.Position = UDim2.new(math.random(3, 97) / 100, 0, math.random(5, 95) / 100, 0)
+        star.Size = UDim2.new(0, starSize, 0, starSize)
+        star.ZIndex = 2
+        Instance.new("UICorner", star).CornerRadius = UDim.new(1, 0)
+
+        task.spawn(function()
+            task.wait(math.random(0, 18) / 10)
+            while star.Parent do
+                tween(star, {BackgroundTransparency = math.random(10, 75) / 100}, math.random(5, 12) / 10, Enum.EasingStyle.Sine)
+                task.wait(math.random(5, 12) / 10)
+            end
+        end)
+    end
+
+    for i = 1, 7 do
+        local line = Instance.new("Frame", ambient)
+        line.BackgroundColor3 = Color3.fromRGB(70, 150, 255)
+        line.BackgroundTransparency = 0.93
+        line.BorderSizePixel = 0
+        line.Position = UDim2.new(0, 0, i / 8, 0)
+        line.Size = UDim2.new(1, 0, 0, 1)
+        line.ZIndex = 2
+    end
+
+    for i = 1, 10 do
+        local line = Instance.new("Frame", ambient)
+        line.BackgroundColor3 = Color3.fromRGB(130, 95, 255)
+        line.BackgroundTransparency = 0.95
+        line.BorderSizePixel = 0
+        line.Position = UDim2.new(i / 11, 0, 0, 0)
+        line.Size = UDim2.new(0, 1, 1, 0)
+        line.ZIndex = 2
+    end
+
     local scanline = Instance.new("Frame", splash)
     scanline.BackgroundColor3 = theme.AccentSecondary
     scanline.BackgroundTransparency = 0.82
@@ -1956,8 +5528,88 @@ local function showPremiumIntro()
     cardStroke.Thickness = 2
     cardStroke.Transparency = 1
     addGlow(card, theme.AccentPrimary, 0.72)
-    tween(card, {Size = UDim2.new(0, 520, 0, 230)}, 0.7, Enum.EasingStyle.Back)
+    addGradient(card, Color3.fromRGB(8, 18, 45), Color3.fromRGB(22, 8, 52), 28)
+    tween(card, {Size = UDim2.new(0, 620, 0, 280)}, 0.7, Enum.EasingStyle.Back)
     tween(cardStroke, {Transparency = 0.18}, 0.7, Enum.EasingStyle.Quad)
+
+    local particleField = Instance.new("Frame", card)
+    particleField.BackgroundTransparency = 1
+    particleField.Position = UDim2.new(0, 18, 0, 26)
+    particleField.Size = UDim2.new(1, -36, 1, -52)
+    particleField.ZIndex = 11
+    particleField.ClipsDescendants = true
+
+    for i = 1, 24 do
+        local mote = Instance.new("Frame", particleField)
+        local moteSize = (i % 4 == 0) and 3 or 2
+        mote.BackgroundColor3 = (i % 2 == 0) and Color3.fromRGB(0, 230, 255) or Color3.fromRGB(185, 120, 255)
+        mote.BackgroundTransparency = math.random(35, 82) / 100
+        mote.BorderSizePixel = 0
+        mote.Position = UDim2.new(math.random(2, 98) / 100, 0, math.random(4, 96) / 100, 0)
+        mote.Size = UDim2.new(0, moteSize, 0, moteSize)
+        mote.ZIndex = 11
+        Instance.new("UICorner", mote).CornerRadius = UDim.new(1, 0)
+
+        task.spawn(function()
+            task.wait(math.random(0, 20) / 10)
+            while mote.Parent do
+                tween(mote, {Position = UDim2.new(mote.Position.X.Scale, 0, mote.Position.Y.Scale - 0.04, 0), BackgroundTransparency = 0.18}, 1.6, Enum.EasingStyle.Sine)
+                task.wait(1.6)
+                if mote.Parent then
+                    mote.Position = UDim2.new(math.random(2, 98) / 100, 0, 1.04, 0)
+                    tween(mote, {BackgroundTransparency = math.random(45, 82) / 100}, 0.8)
+                end
+            end
+        end)
+    end
+
+    local cardSweep = Instance.new("Frame", card)
+    cardSweep.BackgroundColor3 = Color3.fromRGB(125, 240, 255)
+    cardSweep.BackgroundTransparency = 0.72
+    cardSweep.BorderSizePixel = 0
+    cardSweep.Position = UDim2.new(0, -22, 0, 24)
+    cardSweep.Size = UDim2.new(0, 18, 1, -48)
+    cardSweep.Rotation = 12
+    cardSweep.ZIndex = 11
+    local cardSweepGradient = Instance.new("UIGradient", cardSweep)
+    cardSweepGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0.1),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+
+    local function addBracket(position, size)
+        local bracket = Instance.new("Frame", card)
+        bracket.BackgroundColor3 = Color3.fromRGB(105, 235, 255)
+        bracket.BackgroundTransparency = 0.18
+        bracket.BorderSizePixel = 0
+        bracket.Position = position
+        bracket.Size = size
+        bracket.ZIndex = 12
+        return bracket
+    end
+
+    addBracket(UDim2.new(0, 12, 0, 12), UDim2.new(0, 28, 0, 2))
+    addBracket(UDim2.new(0, 12, 0, 12), UDim2.new(0, 2, 0, 28))
+    addBracket(UDim2.new(1, -40, 1, -14), UDim2.new(0, 28, 0, 2))
+    addBracket(UDim2.new(1, -14, 1, -40), UDim2.new(0, 2, 0, 28))
+
+    task.spawn(function()
+        while card.Parent do
+            tween(cardSweep, {Position = UDim2.new(1, 10, 0, 24)}, 1.6, Enum.EasingStyle.Linear)
+            task.wait(2.9)
+            cardSweep.Position = UDim2.new(0, -22, 0, 24)
+        end
+    end)
+
+    task.spawn(function()
+        while card.Parent do
+            tween(cardStroke, {Transparency = 0.04}, 0.85, Enum.EasingStyle.Sine)
+            task.wait(0.85)
+            tween(cardStroke, {Transparency = 0.42}, 0.85, Enum.EasingStyle.Sine)
+            task.wait(0.85)
+        end
+    end)
 
     local topAccent = Instance.new("Frame", card)
     topAccent.BackgroundColor3 = theme.AccentSecondary
@@ -1985,6 +5637,7 @@ local function showPremiumIntro()
     logoStroke.Color = Color3.fromRGB(115, 235, 255)
     logoStroke.Thickness = 2
     logoStroke.Transparency = 0.18
+    addGlow(logo, Color3.fromRGB(70, 170, 255), 0.48)
 
     local logoText = Instance.new("TextLabel", logo)
     logoText.BackgroundTransparency = 1
@@ -2004,6 +5657,40 @@ local function showPremiumIntro()
         ColorSequenceKeypoint.new(1, Color3.fromRGB(90, 215, 255))
     })
     logoTextGradient.Offset = Vector2.new(-1, 0)
+
+    local logoGlint = Instance.new("Frame", logo)
+    logoGlint.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    logoGlint.BackgroundTransparency = 0.68
+    logoGlint.BorderSizePixel = 0
+    logoGlint.Position = UDim2.new(0, -22, 0, -18)
+    logoGlint.Size = UDim2.new(0, 12, 0, 120)
+    logoGlint.Rotation = 28
+    logoGlint.ZIndex = 14
+    local logoGlintGradient = Instance.new("UIGradient", logoGlint)
+    logoGlintGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+
+    task.spawn(function()
+        while logo.Parent do
+            logoGlint.Position = UDim2.new(0, -22, 0, -18)
+            tween(logoGlint, {Position = UDim2.new(1, 12, 0, -18)}, 1.15, Enum.EasingStyle.Linear)
+            task.wait(2.8)
+        end
+    end)
+
+    task.spawn(function()
+        while logo.Parent do
+            tween(logoStroke, {Thickness = 4, Transparency = 0.02}, 0.7, Enum.EasingStyle.Sine)
+            tween(logo, {BackgroundTransparency = 0}, 0.7, Enum.EasingStyle.Sine)
+            task.wait(0.7)
+            tween(logoStroke, {Thickness = 2, Transparency = 0.28}, 0.7, Enum.EasingStyle.Sine)
+            tween(logo, {BackgroundTransparency = 0.1}, 0.7, Enum.EasingStyle.Sine)
+            task.wait(0.7)
+        end
+    end)
     task.spawn(function()
         task.wait(0.35)
         if not logoTextGradient.Parent then return end
@@ -2048,6 +5735,34 @@ local function showPremiumIntro()
         end
     end)
 
+    local orbit = Instance.new("Frame", card)
+    orbit.BackgroundTransparency = 1
+    orbit.Position = UDim2.new(0, 12, 0.5, -57)
+    orbit.Size = UDim2.new(0, 114, 0, 114)
+    orbit.ZIndex = 11
+    Instance.new("UICorner", orbit).CornerRadius = UDim.new(1, 0)
+    local orbitStroke = Instance.new("UIStroke", orbit)
+    orbitStroke.Color = Color3.fromRGB(185, 115, 255)
+    orbitStroke.Thickness = 1
+    orbitStroke.Transparency = 0.38
+
+    local orbitDot = Instance.new("Frame", orbit)
+    orbitDot.BackgroundColor3 = Color3.fromRGB(255, 235, 90)
+    orbitDot.BorderSizePixel = 0
+    orbitDot.Position = UDim2.new(0.5, -3, 0, -3)
+    orbitDot.Size = UDim2.new(0, 6, 0, 6)
+    orbitDot.ZIndex = 12
+    Instance.new("UICorner", orbitDot).CornerRadius = UDim.new(1, 0)
+    addGlow(orbitDot, Color3.fromRGB(255, 210, 80), 0.28)
+
+    task.spawn(function()
+        while orbit.Parent do
+            tween(orbit, {Rotation = orbit.Rotation + 360}, 3.2, Enum.EasingStyle.Linear)
+            task.wait(3.2)
+            if orbit.Parent then orbit.Rotation = 0 end
+        end
+    end)
+
     local eyebrow = Instance.new("TextLabel", card)
     eyebrow.BackgroundTransparency = 1
     eyebrow.Position = UDim2.new(0, 138, 0, 38)
@@ -2086,8 +5801,11 @@ local function showPremiumIntro()
     titleGlint.Offset = Vector2.new(-1, 0)
     task.spawn(function()
         task.wait(0.8)
-        if not titleGlint.Parent then return end
-        tween(titleGlint, {Offset = Vector2.new(1, 0)}, 2.6, Enum.EasingStyle.Linear)
+        while titleGlint.Parent do
+            titleGlint.Offset = Vector2.new(-1, 0)
+            tween(titleGlint, {Offset = Vector2.new(1, 0)}, 2.6, Enum.EasingStyle.Linear)
+            task.wait(2.2)
+        end
     end)
 
     local edition = Instance.new("TextLabel", card)
@@ -2115,8 +5833,11 @@ local function showPremiumIntro()
     editionGlint.Offset = Vector2.new(-1, 0)
     task.spawn(function()
         task.wait(1.15)
-        if not editionGlint.Parent then return end
-        tween(editionGlint, {Offset = Vector2.new(1, 0)}, 2.35, Enum.EasingStyle.Linear)
+        while editionGlint.Parent do
+            editionGlint.Offset = Vector2.new(-1, 0)
+            tween(editionGlint, {Offset = Vector2.new(1, 0)}, 2.35, Enum.EasingStyle.Linear)
+            task.wait(2.5)
+        end
     end)
 
     local maker = Instance.new("TextLabel", card)
@@ -2157,8 +5878,11 @@ local function showPremiumIntro()
     creatorGlint.Offset = Vector2.new(-1, 0)
     task.spawn(function()
         task.wait(1.2)
-        if not creatorGlint.Parent then return end
-        tween(creatorGlint, {Offset = Vector2.new(1, 0)}, 2.55, Enum.EasingStyle.Linear)
+        while creatorGlint.Parent do
+            creatorGlint.Offset = Vector2.new(-1, 0)
+            tween(creatorGlint, {Offset = Vector2.new(1, 0)}, 2.55, Enum.EasingStyle.Linear)
+            task.wait(2.7)
+        end
     end)
 
     local progressTrack = Instance.new("Frame", card)
@@ -2192,7 +5916,7 @@ local function showPremiumIntro()
     status.ZIndex = 12
 
     task.spawn(function()
-        task.wait(3.5)
+        task.wait(1)
         tween(card, {BackgroundTransparency = 1, Size = UDim2.new(0, 560, 0, 248)}, 0.45, Enum.EasingStyle.Quad)
         tween(cardStroke, {Transparency = 1}, 0.45, Enum.EasingStyle.Quad)
         tween(backdrop, {BackgroundTransparency = 1}, 0.55, Enum.EasingStyle.Quad)
@@ -2203,22 +5927,55 @@ local function showPremiumIntro()
 end
 
 main.Visible = false
+do
+    state.MenuCursor = state.MenuCursor or { Icon = nil }
+
+    function state.MenuCursor.KeepVisible()
+        if main.Visible then
+            -- Gun tools can replace the cursor icon or disable it after their
+            -- own render callbacks. Preserve custom crosshair icons while
+            -- keeping the cursor visible over the menu.
+            if aimMouse.Icon and aimMouse.Icon ~= ""
+                and aimMouse.Icon ~= state.MenuCursor.Icon then
+                state.MenuCursor.Icon = aimMouse.Icon
+            end
+            if state.MenuCursor.Icon and state.MenuCursor.Icon ~= "" then
+                aimMouse.Icon = state.MenuCursor.Icon
+            end
+            UserInputService.MouseIconEnabled = true
+        elseif state.MenuCursor.Icon ~= nil then
+            aimMouse.Icon = state.MenuCursor.Icon
+            state.MenuCursor.Icon = nil
+        end
+    end
+
+    main:GetPropertyChangedSignal("Visible"):Connect(state.MenuCursor.KeepVisible)
+    RunService:BindToRenderStep(
+        ids.gui .. "_MenuCursor",
+        Enum.RenderPriority.Last.Value,
+        state.MenuCursor.KeepVisible
+    )
+end
+
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe then return end
     if input.KeyCode == theme.ToggleKey and not isPlayerTyping() then
         state.Visible = not state.Visible
         main.Visible = state.Visible
-    elseif input.KeyCode == Enum.KeyCode.F1 and not isPlayerTyping() then
+    elseif staffCheckKey and input.KeyCode == staffCheckKey and not isPlayerTyping() then
         showStaffNotification()
     end
 end)
 
 -- Init
-for _, p in ipairs(Players:GetPlayers()) do
-    if p ~= localPlayer then applyESP(p) end
-end
+task.spawn(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= localPlayer then applyESP(p) end
+    end
+end)
 
 Players.PlayerAdded:Connect(function(p)
+    autoKickPlayerIfNeeded(p)
     applyESP(p)
     -- Wait for group API to settle, then always refresh the staff list
     task.wait(1)
@@ -2232,7 +5989,13 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 task.spawn(function()
-    task.wait(3)
+    task.wait(1)
     showPremiumIntro()
-    notify("STAFF ALERT STARTED", "T to toggle menu | F1 to check active staff", 5, "success")
+    notify(
+        "STAFF ALERT STARTED",
+        (theme.ToggleKey and theme.ToggleKey.Name or "NONE") .. " to toggle menu | "
+            .. (staffCheckKey and staffCheckKey.Name or "No staff-check key bound"),
+        5,
+        "success"
+    )
 end)
