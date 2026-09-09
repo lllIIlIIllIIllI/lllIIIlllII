@@ -208,7 +208,6 @@ local ONE_STAFF_USERIDS = {
     [301447922] = true,
     [9221310778] = true,
     [2836808851] = true,
-    [432780325] = true,
 }
 
 -- === HELPERS ===
