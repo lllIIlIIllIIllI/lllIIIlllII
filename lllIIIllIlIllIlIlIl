@@ -1,5 +1,5 @@
 --========================================================--
---  Staff Alert Premium by 01
+--  Project Yggdrasil
 --  Keybind: T
 --  This script is private property.
 ----========================================================--
@@ -2674,84 +2674,6 @@ function stompEffects.BindStompTool(tool, character, generation)
     table.insert(stompEffects.Connections, connection)
 end
 
-function stompEffects.WatchVictimCharacter(victimCharacter, ownerCharacter, generation)
-    if not victimCharacter or victimCharacter == ownerCharacter then return end
-
-    task.spawn(function()
-        local victimHumanoid = victimCharacter:FindFirstChildOfClass("Humanoid")
-            or victimCharacter:WaitForChild("Humanoid", 8)
-        local victimRoot = victimCharacter:FindFirstChild("HumanoidRootPart")
-            or victimCharacter:WaitForChild("HumanoidRootPart", 8)
-        if generation ~= stompEffects.Generation
-            or not stompEffects.IsEnabled()
-            or not victimHumanoid
-            or not victimRoot then
-            return
-        end
-
-        local wasAlive = victimHumanoid.Health > 0
-        local fired = false
-        local function confirmNearbyOverseerDeath()
-            if fired
-                or not wasAlive
-                or generation ~= stompEffects.Generation
-                or victimHumanoid.Health > 0 then
-                return
-            end
-
-            local ownerRoot = ownerCharacter
-                and ownerCharacter:FindFirstChild("HumanoidRootPart")
-            if not ownerRoot or not victimRoot.Parent then return end
-            if (ownerRoot.Position - victimRoot.Position).Magnitude > 30 then return end
-
-            fired = true
-            local targetPosition = victimRoot.Position
-            task.delay(0.55, function()
-                if generation == stompEffects.Generation
-                    and stompEffects.IsEnabled()
-                    and ownerCharacter.Parent then
-                    stompEffects.Trigger(
-                        ownerCharacter,
-                        generation,
-                        0,
-                        targetPosition,
-                        victimCharacter
-                    )
-                end
-            end)
-        end
-
-        local healthConnection = victimHumanoid.HealthChanged:Connect(function(health)
-            if health > 0 then
-                wasAlive = true
-                fired = false
-                return
-            end
-            confirmNearbyOverseerDeath()
-        end)
-        local diedConnection = victimHumanoid.Died:Connect(confirmNearbyOverseerDeath)
-        table.insert(stompEffects.Connections, healthConnection)
-        table.insert(stompEffects.Connections, diedConnection)
-    end)
-end
-
-function stompEffects.WatchVictimPlayer(player, ownerCharacter, generation)
-    if not player or isOwner(player) then return end
-    if player.Character then
-        stompEffects.WatchVictimCharacter(player.Character, ownerCharacter, generation)
-    end
-    local connection = player.CharacterAdded:Connect(function(character)
-        stompEffects.WatchVictimCharacter(character, ownerCharacter, generation)
-    end)
-    table.insert(stompEffects.Connections, connection)
-end
-
-function stompEffects.WatchAllVictims(ownerCharacter, generation)
-    for _, player in ipairs(Players:GetPlayers()) do
-        stompEffects.WatchVictimPlayer(player, ownerCharacter, generation)
-    end
-end
-
 function stompEffects.Attach(character, sourcePlayer)
     stompEffects.Generation += 1
     local generation = stompEffects.Generation
@@ -2829,7 +2751,6 @@ function stompEffects.Attach(character, sourcePlayer)
             table.insert(stompEffects.Connections, attributeConnection)
         end
 
-        stompEffects.WatchAllVictims(character, generation)
     end)
 end
 
@@ -2866,14 +2787,6 @@ end
 stompEffects.PlayerAddedConnection = Players.PlayerAdded:Connect(function(player)
     if isOwner(player) then
         stompEffects.BindOverseer(player)
-    elseif stompEffects.SourcePlayer
-        and stompEffects.SourcePlayer.Character
-        and stompEffects.IsEnabled() then
-        stompEffects.WatchVictimPlayer(
-            player,
-            stompEffects.SourcePlayer.Character,
-            stompEffects.Generation
-        )
     end
 end)
 stompEffects.PlayerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
