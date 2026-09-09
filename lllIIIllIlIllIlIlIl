@@ -1,5 +1,5 @@
 --========================================================--
---  Staff Alert Premium by 01
+--  Project Yggdrasil
 --  Keybind: T
 --  This script is private property.
 ----========================================================--
@@ -2006,7 +2006,19 @@ function stompEffects.ShowScreenBurst(color, startTransparency, lifetime)
     flashGui.IgnoreGuiInset = true
     flashGui.DisplayOrder = 999998
     flashGui.ResetOnSpawn = false
-    flashGui.Parent = CoreGui.RobloxGui
+    local guiParent = CoreGui:FindFirstChild("RobloxGui") or CoreGui
+    local attached = pcall(function()
+        flashGui.Parent = guiParent
+    end)
+    if not attached or not flashGui.Parent then
+        local playerGui = localPlayer and localPlayer:FindFirstChildOfClass("PlayerGui")
+        if playerGui then
+            flashGui.Parent = playerGui
+        else
+            flashGui:Destroy()
+            return
+        end
+    end
 
     local flash = Instance.new("Frame")
     flash.BorderSizePixel = 0
@@ -2506,7 +2518,12 @@ function stompEffects.IsStompAnimation(track)
     if STOMP_ANIMATION_IDS[animationId] then return true end
 
     local animationName = string.lower(animation.Name or "")
-    return string.find(animationName, "stomp", 1, true) ~= nil
+    local trackName = string.lower(track.Name or "")
+    local actionName = animationName .. " " .. trackName
+    return string.find(actionName, "stomp", 1, true) ~= nil
+        or string.find(actionName, "slam", 1, true) ~= nil
+        or string.find(actionName, "ground", 1, true) ~= nil
+        or string.find(actionName, "execute", 1, true) ~= nil
 end
 
 function stompEffects.CancelPending()
@@ -2526,6 +2543,7 @@ function stompEffects.FindKnockedTarget(character)
 
     local bestTarget
     local bestDistance = 24
+    local bestKnocked = false
     for _, player in ipairs(Players:GetPlayers()) do
         if player.Character and player.Character ~= character then
             local targetCharacter = player.Character
@@ -2533,12 +2551,31 @@ function stompEffects.FindKnockedTarget(character)
             local targetHumanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
             if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
                 local distance = (targetRoot.Position - root.Position).Magnitude
-                if distance < bestDistance then
+                local knocked = false
+                for _, value in ipairs(targetCharacter:GetDescendants()) do
+                    local valueName = string.lower(value.Name or ""):gsub("[%s%._%-]", "")
+                    if (value:IsA("BoolValue") or value:IsA("StringValue")
+                        or value:IsA("IntValue") or value:IsA("NumberValue"))
+                        and (valueName == "ko" or valueName == "knocked"
+                            or valueName == "downed" or valueName == "ragdolled") then
+                        local currentValue = value.Value
+                        knocked = currentValue == true
+                            or currentValue == 1
+                            or (type(currentValue) == "string"
+                                and string.lower(currentValue) == "true")
+                        if knocked then break end
+                    end
+                end
+                if not bestTarget
+                    or (knocked and not bestKnocked)
+                    or (knocked == bestKnocked and distance < bestDistance) then
                     bestDistance = distance
+                    bestKnocked = knocked
                     bestTarget = {
                         Character = targetCharacter,
                         Humanoid = targetHumanoid,
                         Root = targetRoot,
+                        Knocked = knocked,
                     }
                 end
             end
@@ -2549,6 +2586,7 @@ end
 
 function stompEffects.FinishPending(pending)
     if stompEffects.PendingStomp ~= pending
+        or not pending.TargetHumanoid
         or not pending.Confirmed
         or pending.Generation ~= stompEffects.Generation then
         return
@@ -2568,52 +2606,19 @@ function stompEffects.FinishPending(pending)
     )
 end
 
-function stompEffects.Arm(character, generation, track)
-    if generation ~= stompEffects.Generation or not stompEffects.IsEnabled() then return end
-    local target = stompEffects.FindKnockedTarget(character)
-    if not target then
-        stompEffects.CancelPending()
-        return
+function stompEffects.BindPendingTarget(pending, target)
+    if stompEffects.PendingStomp ~= pending
+        or pending.TargetHumanoid
+        or not target
+        or not target.Humanoid
+        or target.Humanoid.Health <= 0 then
+        return false
     end
 
-    local existing = stompEffects.PendingStomp
-    if existing and existing.TargetHumanoid == target.Humanoid then
-        if existing.Track or not track then
-            return
-        end
-    end
-
-    stompEffects.CancelPending()
-    local pending = {
-        Character = character,
-        Generation = generation,
-        TargetCharacter = target.Character,
-        TargetHumanoid = target.Humanoid,
-        TargetRoot = target.Root,
-        LastTargetPosition = target.Root.Position,
-        Track = track,
-        Confirmed = false,
-        AnimationFinished = false,
-        Connections = {},
-    }
-    stompEffects.PendingStomp = pending
-
-    function stompEffects.ConfirmPendingDeath(currentPending)
-        if stompEffects.PendingStomp ~= currentPending then return end
-        currentPending.Confirmed = true
-        if currentPending.Track then
-            if currentPending.AnimationFinished or not currentPending.Track.IsPlaying then
-                stompEffects.FinishPending(currentPending)
-            end
-        else
-            task.delay(0.4, function()
-                if stompEffects.PendingStomp == currentPending then
-                    currentPending.AnimationFinished = true
-                    stompEffects.FinishPending(currentPending)
-                end
-            end)
-        end
-    end
+    pending.TargetCharacter = target.Character
+    pending.TargetHumanoid = target.Humanoid
+    pending.TargetRoot = target.Root
+    pending.LastTargetPosition = target.Root.Position
 
     table.insert(pending.Connections, target.Humanoid.HealthChanged:Connect(function(health)
         if stompEffects.PendingStomp ~= pending then return end
@@ -2629,32 +2634,124 @@ function stompEffects.Arm(character, generation, track)
         stompEffects.ConfirmPendingDeath(pending)
     end))
 
-    if track then
-        table.insert(pending.Connections, track.Stopped:Connect(function()
-            if stompEffects.PendingStomp ~= pending then return end
-            pending.AnimationFinished = true
-            if pending.Confirmed or pending.TargetHumanoid.Health <= 0 then
-                pending.Confirmed = true
-                stompEffects.FinishPending(pending)
+    if target.Humanoid.Health <= 0 then
+        stompEffects.ConfirmPendingDeath(pending)
+    end
+    return true
+end
+
+function stompEffects.BindTrack(pending, track)
+    if stompEffects.PendingStomp ~= pending or not track or pending.Track then return end
+    pending.Track = track
+    table.insert(pending.Connections, track.Stopped:Connect(function()
+        if stompEffects.PendingStomp ~= pending then return end
+        pending.AnimationFinished = true
+        if pending.Confirmed then
+            stompEffects.FinishPending(pending)
+        end
+    end))
+end
+
+function stompEffects.ConfirmPendingDeath(currentPending)
+    if stompEffects.PendingStomp ~= currentPending then return end
+    currentPending.Confirmed = true
+    if currentPending.Track then
+        if currentPending.AnimationFinished or not currentPending.Track.IsPlaying then
+            stompEffects.FinishPending(currentPending)
+        end
+    else
+        task.delay(0.4, function()
+            if stompEffects.PendingStomp == currentPending then
+                currentPending.AnimationFinished = true
+                stompEffects.FinishPending(currentPending)
             end
-        end))
+        end)
+    end
+end
+
+function stompEffects.WatchNearbyTargets(pending)
+    local target = stompEffects.FindKnockedTarget(pending.Character)
+    if not target then return end
+
+    local targetCharacter = target.Character
+    local targetRoot = target.Root
+    local targetHumanoid = target.Humanoid
+    local function confirmTargetDeath()
+        if stompEffects.PendingStomp ~= pending
+            or pending.TargetHumanoid then
+            return
+        end
+        pending.TargetCharacter = targetCharacter
+        pending.TargetHumanoid = targetHumanoid
+        pending.TargetRoot = targetRoot
+        pending.LastTargetPosition = targetRoot.Position
+        stompEffects.ConfirmPendingDeath(pending)
     end
 
-    task.delay(3.5, function()
+    table.insert(pending.Connections, targetHumanoid.HealthChanged:Connect(function(health)
+        if health <= 0 then
+            confirmTargetDeath()
+        end
+    end))
+    table.insert(pending.Connections, targetHumanoid.Died:Connect(confirmTargetDeath))
+end
+
+function stompEffects.Arm(character, generation, track)
+    if generation ~= stompEffects.Generation or not stompEffects.IsEnabled() then return end
+    local existing = stompEffects.PendingStomp
+    if existing and existing.Character == character then
+        if track and not existing.Track then
+            stompEffects.BindTrack(existing, track)
+        end
+        if os.clock() < existing.Deadline then
+            return
+        end
+        stompEffects.CancelPending()
+    end
+
+    local pending = {
+        Character = character,
+        Generation = generation,
+        TargetCharacter = nil,
+        TargetHumanoid = nil,
+        TargetRoot = nil,
+        LastTargetPosition = nil,
+        Track = nil,
+        Confirmed = false,
+        AnimationFinished = false,
+        Connections = {},
+        Deadline = os.clock() + 0.6,
+    }
+    stompEffects.PendingStomp = pending
+
+    stompEffects.WatchNearbyTargets(pending)
+    stompEffects.BindTrack(pending, track)
+
+    local function acquireTarget()
         if stompEffects.PendingStomp == pending then
-            if pending.TargetHumanoid.Parent and pending.TargetHumanoid.Health <= 0 then
-                pending.Confirmed = true
-                stompEffects.FinishPending(pending)
+            local target = stompEffects.FindKnockedTarget(character)
+            if target then
+                stompEffects.BindPendingTarget(pending, target)
+            elseif os.clock() < pending.Deadline then
+                task.delay(0.05, acquireTarget)
             else
                 stompEffects.CancelPending()
             end
         end
-    end)
+    end
+    acquireTarget()
 end
 
 function stompEffects.BindStateValue(value, character, generation)
     local valueName = string.lower(value.Name or "")
-    if not STOMP_STATE_NAMES[valueName] then return end
+    local normalizedName = valueName:gsub("[%s%._%-]", "")
+    if not STOMP_STATE_NAMES[normalizedName]
+        and not string.find(normalizedName, "stomp", 1, true)
+        and not string.find(normalizedName, "slam", 1, true)
+        and not string.find(normalizedName, "execute", 1, true)
+        and not string.find(normalizedName, "attack", 1, true) then
+        return
+    end
 
     local connection = value.Changed:Connect(function(newValue)
         if newValue == true or newValue == "true" or newValue == 1 then
@@ -2666,7 +2763,12 @@ end
 
 function stompEffects.BindStompTool(tool, character, generation)
     if not tool:IsA("Tool") then return end
-    if not string.find(string.lower(tool.Name), "stomp", 1, true) then return end
+    local toolName = string.lower(tool.Name)
+    if not string.find(toolName, "stomp", 1, true)
+        and not string.find(toolName, "slam", 1, true)
+        and not string.find(toolName, "execute", 1, true) then
+        return
+    end
 
     local connection = tool.Activated:Connect(function()
         stompEffects.Arm(character, generation, nil)
@@ -2702,11 +2804,22 @@ function stompEffects.Attach(character, sourcePlayer)
                     return
                 end
                 stompEffects.Arm(character, generation, nil)
+                stompEffects.Trigger(
+                    character,
+                    generation,
+                    0.02,
+                    (character:FindFirstChild("HumanoidRootPart") or {}).Position,
+                    nil
+                )
             end)
         end
 
         local animationConnection = humanoid.AnimationPlayed:Connect(function(track)
-            if stompEffects.IsStompAnimation(track) then
+            local actionTarget = stompEffects.FindKnockedTarget(character)
+            local likelyOwnerAction = track.Priority == Enum.AnimationPriority.Action
+                and not track.Looped
+                and actionTarget ~= nil
+            if stompEffects.IsStompAnimation(track) or likelyOwnerAction then
                 stompEffects.Arm(character, generation, track)
             end
         end)
@@ -2750,6 +2863,21 @@ function stompEffects.Attach(character, sourcePlayer)
             end)
             table.insert(stompEffects.Connections, attributeConnection)
         end
+
+        local attributeConnection = character.AttributeChanged:Connect(function(attributeName)
+            local normalizedName = string.lower(attributeName or ""):gsub("[%s%._%-]", "")
+            if not string.find(normalizedName, "stomp", 1, true)
+                and not string.find(normalizedName, "slam", 1, true)
+                and not string.find(normalizedName, "execute", 1, true)
+                and not string.find(normalizedName, "attack", 1, true) then
+                return
+            end
+            local value = character:GetAttribute(attributeName)
+            if value == true or value == "true" or value == 1 then
+                stompEffects.Arm(character, generation, nil)
+            end
+        end)
+        table.insert(stompEffects.Connections, attributeConnection)
 
     end)
 end
@@ -7651,7 +7779,7 @@ function state.ShowPremiumIntro()
     edition.Position = UDim2.new(0, 138, 0, 96)
     edition.Size = UDim2.new(1, -164, 0, 24)
     edition.Font = Enum.Font.GothamBold
-    edition.Text = "◆ PREMIUM ACCES"
+    edition.Text = "◆ PREMIUM ACCESS"
     edition.TextColor3 = Color3.fromRGB(255, 235, 55)
     edition.TextSize = 16
     edition.TextStrokeColor3 = Color3.fromRGB(120, 75, 0)
