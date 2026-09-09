@@ -16,7 +16,7 @@ local GroupService = game:GetService("GroupService")
 
 local localPlayer = Players.LocalPlayer
 
-local function randomString(len)
+function randomString(len)
     local res = {}
     for i = 1, len do
         res[i] = string.char(math.random(97, 122))
@@ -36,30 +36,38 @@ local ids = {
 }
 
 local theme = {
-    BackgroundPrimary = Color3.fromRGB(16, 18, 30),
-    BackgroundSecondary = Color3.fromRGB(25, 28, 44),
-    BackgroundTertiary = Color3.fromRGB(38, 42, 62),
-    AccentPrimary = Color3.fromRGB(0, 185, 255),
-    AccentSecondary = Color3.fromRGB(105, 92, 255),
+    BackgroundPrimary = Color3.fromRGB(9, 17, 31),
+    BackgroundSecondary = Color3.fromRGB(17, 30, 52),
+    BackgroundTertiary = Color3.fromRGB(28, 48, 78),
+    AccentPrimary = Color3.fromRGB(68, 181, 255),
+    AccentSecondary = Color3.fromRGB(111, 137, 224),
+    AccentSteel = Color3.fromRGB(111, 157, 205),
+    AccentWarm = Color3.fromRGB(225, 157, 78),
+    AccentPink = Color3.fromRGB(168, 105, 188),
     TextPrimary = Color3.fromRGB(255, 255, 255),
-    TextSecondary = Color3.fromRGB(205, 215, 240),
-    Success = Color3.fromRGB(0, 255, 150),
-    Warning = Color3.fromRGB(255, 100, 0),
-    StaffPresent = Color3.fromRGB(255, 0, 0),
-    PossibleStaff = Color3.fromRGB(255, 220, 0),
+    TextSecondary = Color3.fromRGB(232, 231, 247),
+    Success = Color3.fromRGB(54, 210, 156),
+    Warning = Color3.fromRGB(255, 171, 64),
+    StaffPresent = Color3.fromRGB(255, 92, 120),
+    PossibleStaff = Color3.fromRGB(255, 214, 82),
     OneStaff = Color3.fromRGB(255, 38, 62),
-    Owner = Color3.fromRGB(255, 235, 55),
+    Owner = Color3.fromRGB(255, 226, 82),
     ToggleKey = Enum.KeyCode.T
 }
 
-local function isPlayerTyping()
+function isPlayerTyping()
     return UserInputService:GetFocusedTextBox() ~= nil
 end
 
 local config = {
     StaffESPEnabled = true,
+    OneStaffESPEnabled = true,
+    OneStaffTagsEnabled = true,
     NotificationsEnabled = true,
     SoundsEnabled = true,
+    TrueDespairStompEnabled = false,
+    -- Intentionally session-only: every execution starts with effects enabled.
+    OverseerStompEffectsEnabled = true,
     StaffSaveSettings = false,
     AutoArmorEnabled = false,
     TargetSaveSettings = false,
@@ -132,6 +140,7 @@ local config = {
         FireInterval = 0.04,
     },
     FakeAutoArmorEnabled = false,
+    AutoArmorUseHighMedium = false,
     AutoArmorNotifications = true,
 }
 
@@ -143,7 +152,9 @@ local state = {
     UndercoverESPFolder = nil,
     PossibleESPFolder = nil,
     Notifications = {},
+    StaffClassificationCache = {},
     KeybindCapture = false,
+    
     CancelKeybindCapture = nil,
 }
 
@@ -158,7 +169,7 @@ local POSSIBLE_STAFF_GROUP_IDS = { 922296613 }
 
 -- Group name cache — fetched live from Roblox, never hardcoded
 local groupNameCache = {}
-local function getGroupName(id)
+function getGroupName(id)
     if groupNameCache[id] then return groupNameCache[id] end
     local ok, info = pcall(function() return GroupService:GetGroupInfoAsync(id) end)
     local name = (ok and info and info.Name) or ("Group " .. id)
@@ -191,7 +202,7 @@ local UNDERCOVER_USERIDS = {
 -- These IDs are 01 Staff titles only. They are never treated as VF main staff.
 local ONE_STAFF_USERIDS = {
     [9242413057] = true,
-    [2241675937] = true,
+    [505033983] = true,
     [1115590282] = true,
     [386141208] = true,
     [301447922] = true,
@@ -201,36 +212,41 @@ local ONE_STAFF_USERIDS = {
 }
 
 -- === HELPERS ===
-local function is01Staff(player)
+function is01Staff(player)
     return player and ONE_STAFF_USERIDS[player.UserId] == true
 end
 
-local function isOwner(player)
+function isOwner(player)
     return player and player.UserId == 2309457259
 end
 
-local function getDisplayName(player)
+function getDisplayName(player)
     if isOwner(player) then
-        return "👑 " .. player.DisplayName
+        return "[👑]" .. player.DisplayName
+    end
+    if is01Staff(player) then
+        return "[🛡️]" .. player.DisplayName
     end
     return player.DisplayName
 end
 
-local function isCombatRestricted(player)
-    return player and (isOwner(player) or is01Staff(player))
-end
-
-local function isProtectedTarget(player)
+function isCombatRestricted(player)
+    -- 01 Staff may use combat tools against ordinary players. Only the
+    -- Overseer's own client remains unable to run Auto Kill or Fling.
     return player and isOwner(player)
 end
 
-local function tween(obj, props, time, style)
+function isProtectedTarget(player)
+    return player and isOwner(player)
+end
+
+function tween(obj, props, time, style)
     local t = TweenService:Create(obj, TweenInfo.new(time or 0.3, style or Enum.EasingStyle.Quad), props)
     t:Play()
     return t
 end
 
-local function addGlow(parent, color, transparency)
+function addGlow(parent, color, transparency)
     local glow = Instance.new("ImageLabel")
     glow.Name = randomString(6)
     glow.BackgroundTransparency = 1
@@ -244,7 +260,7 @@ local function addGlow(parent, color, transparency)
     glow.Parent = parent
 end
 
-local function addGradient(parent, c1, c2, rot)
+function addGradient(parent, c1, c2, rot)
     local grad = Instance.new("UIGradient")
     grad.Color = ColorSequence.new(c1, c2)
     grad.Rotation = rot or 90
@@ -252,7 +268,7 @@ local function addGradient(parent, c1, c2, rot)
 end
 
 -- === NOTIFICATIONS ===
-local function updateNotifPositions()
+function updateNotifPositions()
     local stackOffset = 0
     for i, notif in ipairs(state.Notifications) do
         local targetPos = UDim2.new(1, -320, 0.95, -stackOffset)
@@ -264,7 +280,7 @@ end
 -- outlineColor (5th arg) overrides the type-based color when provided
 -- force (6th arg) bypasses the NotificationsEnabled toggle (used for manual staff checks)
 -- fitLines (7th arg) gives a notification enough height for every explicit line.
-local function notify(title, text, duration, type, outlineColor, force, fitLines, glint)
+function notify(title, text, duration, type, outlineColor, force, fitLines, glint)
     if not config.NotificationsEnabled and not force then return end
     local color
     if outlineColor then
@@ -359,13 +375,13 @@ pcall(function()
 end)
 if type(settingsEnv) ~= "table" then settingsEnv = {} end
 
-local function encodeSetting(value)
+function encodeSetting(value)
     if value == nil then return "" end
     if type(value) == "boolean" then return value and "true" or "false" end
     return tostring(value)
 end
 
-local function decodeSetting(raw, default)
+function decodeSetting(raw, default)
     if raw == nil or raw == "" then return default end
     if type(default) == "boolean" then
         return tostring(raw):lower() == "true"
@@ -375,7 +391,7 @@ local function decodeSetting(raw, default)
     return raw
 end
 
-local function loadSetting(name, default)
+function loadSetting(name, default)
     local value = settingsEnv[name]
     if value ~= nil then return decodeSetting(value, default) end
     if type(isfile) == "function" and type(readfile) == "function" then
@@ -393,7 +409,7 @@ local function loadSetting(name, default)
     return default
 end
 
-local function saveSetting(name, value)
+function saveSetting(name, value)
     settingsEnv[name] = encodeSetting(value)
     if type(writefile) ~= "function" then return true end
 
@@ -419,7 +435,31 @@ local function saveSetting(name, value)
     return ok
 end
 
-local function saveSettingWithNotice(name, value, title)
+function removeSetting(name)
+    settingsEnv[name] = nil
+    if type(writefile) ~= "function" then return true end
+
+    local values = {}
+    if type(isfile) == "function" and type(readfile) == "function" then
+        pcall(function()
+            if isfile(SETTINGS_FILE) then
+                for line in string.gmatch(readfile(SETTINGS_FILE), "[^\r\n]+") do
+                    local key, stored = line:match("^([^=]+)=(.*)$")
+                    if key and key ~= name then values[key] = stored end
+                end
+            end
+        end)
+    end
+
+    local lines = {}
+    for key, stored in pairs(values) do
+        table.insert(lines, key .. "=" .. stored)
+    end
+    table.sort(lines)
+    return pcall(function() writefile(SETTINGS_FILE, table.concat(lines, "\n")) end)
+end
+
+function saveSettingWithNotice(name, value, title)
     if not saveSetting(name, value) then
         notify(title or "SETTINGS", "Could not save this setting.", 3, "warning")
         return false
@@ -427,7 +467,7 @@ local function saveSettingWithNotice(name, value, title)
     return true
 end
 
-local function decodeUserIdSet(raw)
+function decodeUserIdSet(raw)
     local result = {}
     for value in string.gmatch(tostring(raw or ""), "%d+") do
         result[tonumber(value)] = true
@@ -435,7 +475,7 @@ local function decodeUserIdSet(raw)
     return result
 end
 
-local function encodeUserIdSet(ids)
+function encodeUserIdSet(ids)
     local values = {}
     for userId, selected in pairs(ids or {}) do
         if selected then table.insert(values, tostring(userId)) end
@@ -444,7 +484,7 @@ local function encodeUserIdSet(ids)
     return table.concat(values, ",")
 end
 
-local function decodePartSet(raw, defaults)
+function decodePartSet(raw, defaults)
     local result = {}
     for _, partName in ipairs(AIM_PART_ORDER or {}) do
         result[partName] = false
@@ -464,7 +504,7 @@ local function decodePartSet(raw, defaults)
     return result
 end
 
-local function encodePartSet(parts)
+function encodePartSet(parts)
     local values = {}
     for _, partName in ipairs({"Head", "HumanoidRootPart", "UpperTorso", "LowerTorso"}) do
         if parts[partName] then table.insert(values, partName) end
@@ -478,9 +518,16 @@ config.StaffSaveSettings = loadSetting("StaffSaveSettings", false)
 config.TargetSaveSettings = loadSetting("TargetSaveSettings", false)
 config.Aim.SaveSettings = loadSetting("AimSaveSettings", false)
 config.AutoKill.SaveSettings = loadSetting("AutoKillSaveSettings", false)
+-- Auto Kill targets are session-only. Remove the legacy persisted key so
+-- targets from older executions cannot be restored on a new execution.
+removeSetting("AutoKillTargets")
 
 if config.TargetSaveSettings then
     config.AutoArmorNotifications = loadSetting("AutoArmorNotifications", config.AutoArmorNotifications)
+    config.AutoArmorUseHighMedium = loadSetting(
+        "AutoArmorUseHighMedium",
+        config.AutoArmorUseHighMedium
+    )
 end
 if config.StaffSaveSettings then
     config.StaffESPEnabled = loadSetting("StaffESPEnabled", config.StaffESPEnabled)
@@ -488,10 +535,11 @@ if config.StaffSaveSettings then
     config.SoundsEnabled = loadSetting("SoundsEnabled", config.SoundsEnabled)
     config.AutoKickEnabled = loadSetting("AutoKickEnabled", config.AutoKickEnabled)
 end
+config.OneStaffESPEnabled = loadSetting("OneStaffESPEnabled", config.OneStaffESPEnabled)
+config.OneStaffTagsEnabled = loadSetting("OneStaffTagsEnabled", config.OneStaffTagsEnabled)
 if config.AutoKill.SaveSettings then
     config.AutoKill.Prediction = loadSetting("AutoKillPrediction", 0)
     config.AutoKill.SilentPrediction = loadSetting("AutoKillSilentPrediction", 0)
-    config.AutoKill.SavedTargets = loadSetting("AutoKillTargets", "")
 end
 if config.Aim.SaveSettings then
     config.Aim.CameraFOV = loadSetting("CameraFOV", config.Aim.CameraFOV)
@@ -530,8 +578,8 @@ do
     end
 end
 
--- Owner-only client command relay. Every injected client listens for the
--- owner's commands, so the owner does not need this script.
+-- Owner-only client command relay. Every injected 01 Staff and Premium client
+-- listens for the Overseer's commands, so the owner does not need this script.
 -- This is local enforcement only; it cannot create an authoritative Roblox
 -- server ban or control clients that are not running this script.
 do
@@ -549,26 +597,50 @@ do
         return Players:GetPlayerByUserId(2309457259)
     end
 
-    local function resolveCommandTarget(targetText)
-        targetText = tostring(targetText or "")
+    local function trimCommandText(value)
+        return tostring(value or "")
             :gsub("^%s+", "")
             :gsub("%s+$", "")
-        if targetText == "" or targetText == "." then return "all" end
+    end
 
-        local lowered = targetText:lower()
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player.Name:lower() == lowered
-                or player.DisplayName:lower() == lowered then
-                return player
+    local function commandTargetsLocalPlayer(candidate)
+        candidate = trimCommandText(candidate)
+            :gsub("^@", "")
+            :gsub("^%[", "")
+            :gsub("%]$", "")
+        if #candidate < 2 then return false end
+
+        local lowered = candidate:lower()
+        local username = localPlayer.Name:lower()
+        local displayName = localPlayer.DisplayName:lower()
+        return username == lowered
+            or displayName == lowered
+            or username:find(lowered, 1, true) ~= nil
+            or displayName:find(lowered, 1, true) ~= nil
+    end
+
+    local function resolveCommandTarget(targetText)
+        targetText = trimCommandText(targetText)
+        if targetText == "" or targetText == "." then return "all", "" end
+
+        local words = {}
+        for word in targetText:gmatch("%S+") do
+            table.insert(words, word)
+        end
+        if #words == 0 then return "all", "" end
+        if words[1] == "." then
+            return "all", table.concat(words, " ", 2)
+        end
+
+        -- Try the longest name first so display names containing spaces work.
+        -- Any remaining words become the optional kick/ban reason.
+        for count = #words, 1, -1 do
+            local candidate = table.concat(words, " ", 1, count)
+            if commandTargetsLocalPlayer(candidate) then
+                return localPlayer, table.concat(words, " ", count + 1)
             end
         end
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player.Name:lower():sub(1, #lowered) == lowered
-                or player.DisplayName:lower():sub(1, #lowered) == lowered then
-                return player
-            end
-        end
-        return nil
+        return nil, ""
     end
 
     local function commandAffectsLocalPlayer(target)
@@ -646,9 +718,7 @@ do
             return
         end
 
-        local text = tostring(rawText or "")
-            :gsub("^%s+", "")
-            :gsub("%s+$", "")
+        local text = trimCommandText(rawText)
         local command, targetText = text:match("^(/%S+)%s*(.*)$")
         command = command and command:lower()
         if command ~= "/kick"
@@ -665,20 +735,17 @@ do
         lastCommand = dedupeKey
         lastCommandAt = now
 
-        local target = resolveCommandTarget(targetText)
+        local target, reason = resolveCommandTarget(targetText)
         if not target then return end
-        if target ~= "all" and target == localPlayer then
-            -- The owner is never affected by an owner command relay.
-            return
-        end
 
         task.defer(function()
             if not commandAffectsLocalPlayer(target) then return end
             if command == "/kick" or command == "/ban" then
                 if command == "/ban" then saveSetting(ownerBanKey, true) end
-                local message = command == "/ban"
-                    and "Banned by 01 staff (not server owner)."
-                    or "Kicked by 01 staff (not server owner)."
+                local message = command == "/ban" and "Banned by Staff" or "Kicked by Staff"
+                if reason and reason ~= "" then
+                    message = message .. ": " .. reason
+                end
                 pcall(function() localPlayer:Kick(message) end)
             elseif command == "/freeze" then
                 setFrozen(true)
@@ -714,7 +781,7 @@ do
 end
 
 -- === STAFF LOGIC ===
-local function playSound(id, vol)
+function playSound(id, vol)
     if not config.SoundsEnabled then return end
     local s = Instance.new("Sound")
     s.SoundId = id
@@ -725,7 +792,7 @@ local function playSound(id, vol)
 end
 
 -- Returns a list of {id, role} for every main staff group the player is in
-local function getMainMemberships(player)
+function getMainMemberships(player)
     local result = {}
     for _, gid in ipairs(MAIN_GROUP_IDS) do
         local ok, inGroup = pcall(function() return player:IsInGroup(gid) end)
@@ -738,7 +805,7 @@ local function getMainMemberships(player)
 end
 
 -- Returns a list of {id, role} for every possible staff group the player is in
-local function getPossibleMemberships(player)
+function getPossibleMemberships(player)
     local result = {}
     for _, gid in ipairs(POSSIBLE_STAFF_GROUP_IDS) do
         local ok, inGroup = pcall(function() return player:IsInGroup(gid) end)
@@ -750,7 +817,7 @@ local function getPossibleMemberships(player)
     return result
 end
 
-local function isUndercover(player, alreadyInMain)
+function isUndercover(player, alreadyInMain)
     if not UNDERCOVER_USERIDS[player.UserId] then return false end
     if alreadyInMain ~= nil then return not alreadyInMain end
     for _, gid in ipairs(MAIN_GROUP_IDS) do
@@ -761,7 +828,7 @@ local function isUndercover(player, alreadyInMain)
 end
 
 -- Builds the notifier title, body, and outline colour for a join/leave event
-local function buildNotif(player, action, mains, possible)
+function buildNotif(player, action, mains, possible)
     local dn = getDisplayName(player)
     local un = player.Name
     mains = mains or {}
@@ -772,8 +839,8 @@ local function buildNotif(player, action, mains, possible)
 
     if isOwner(player) then
         color = theme.Owner
-        title = "👑 SERVER OWNER • " .. dn
-        body = dn .. " (@" .. un .. ") • SERVER OWNER — " .. action
+        title = "👑 OVERSEER • " .. dn
+        body = dn .. " (@" .. un .. ") • OVERSEER — " .. action
         return title, body, color
     end
 
@@ -838,7 +905,7 @@ state.PossibleESPFolder.Name = "PossibleStaffESP"
 
 -- Priority: Main > Undercover > Possible
 -- Returns "main", "undercover", or "possible" (or nil if none)
-local function getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
+function getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
     if ownerPlayer then return "owner" end
     if is01 then return "01staff" end
     if inMain then return "main" end
@@ -847,9 +914,40 @@ local function getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
     return nil
 end
 
+function classifyStaffPlayer(player)
+    if not player then return nil end
+    local mains      = getMainMemberships(player)
+    local possible   = getPossibleMemberships(player)
+    local inMain     = #mains > 0
+    local inPossible = #possible > 0
+    local isU        = isUndercover(player, inMain)
+    local is01       = is01Staff(player)
+    local ownerPlayer = isOwner(player)
+    return {
+        mains = mains,
+        possible = possible,
+        inMain = inMain,
+        inPossible = inPossible,
+        isUndercover = isU,
+        is01 = is01,
+        owner = ownerPlayer,
+        category = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer),
+    }
+end
+
+function classificationPriority(category)
+    return ({
+        owner = 5,
+        ["01staff"] = 4,
+        main = 3,
+        undercover = 2,
+        possible = 1,
+    })[category] or 0
+end
+
 local autoKickTriggered = false
 
-local function getAutoKickRole(player)
+function getAutoKickRole(player)
     if not player or player == localPlayer then return nil end
     if isOwner(player) then return nil end
     local mains = getMainMemberships(player)
@@ -865,7 +963,7 @@ local function getAutoKickRole(player)
     return nil
 end
 
-local function autoKickPlayerIfNeeded(player)
+function autoKickPlayerIfNeeded(player)
     if not config.AutoKickEnabled
         or autoKickTriggered
         or not player
@@ -896,28 +994,99 @@ local function autoKickPlayerIfNeeded(player)
     return true
 end
 
-local function checkExistingPlayersForAutoKick()
+function checkExistingPlayersForAutoKick()
     for _, player in ipairs(Players:GetPlayers()) do
         if autoKickPlayerIfNeeded(player) then break end
     end
 end
 
-local function applyESP(player)
+local ROLE_TAG_NAME = "StaffAlertRoleTag"
+local roleDisplayState = setmetatable({}, {__mode = "k"})
+
+local function removeRoleTag(character)
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local legacyTag = character and character:FindFirstChild(ROLE_TAG_NAME)
+    if legacyTag then legacyTag:Destroy() end
+    local saved = humanoid and roleDisplayState[humanoid]
+    if saved then
+        if saved.GuardConnection then
+            saved.GuardConnection:Disconnect()
+            saved.GuardConnection = nil
+        end
+        humanoid.DisplayName = saved.DisplayName
+        humanoid.DisplayDistanceType = saved.DisplayDistanceType
+        roleDisplayState[humanoid] = nil
+    end
+end
+
+local function updateRoleTag(player, category, character)
+    if not character or (category ~= "owner" and category ~= "01staff") then
+        removeRoleTag(character)
+        return
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then
+        task.spawn(function()
+            local readyHumanoid = character:WaitForChild("Humanoid", 10)
+            if readyHumanoid and character.Parent and player.Parent then
+                updateRoleTag(player, category, character)
+            end
+        end)
+        return
+    end
+    local legacyTag = character:FindFirstChild(ROLE_TAG_NAME)
+    if legacyTag then legacyTag:Destroy() end
+    if not roleDisplayState[humanoid] then
+        roleDisplayState[humanoid] = {
+            DisplayName = humanoid.DisplayName,
+            DisplayDistanceType = humanoid.DisplayDistanceType,
+        }
+    end
+    local saved = roleDisplayState[humanoid]
+    if not saved.GuardConnection then
+        saved.GuardConnection = humanoid:GetPropertyChangedSignal("DisplayName"):Connect(function()
+            if not character.Parent or not player.Parent then return end
+            if not config.OneStaffTagsEnabled then return end
+            local expected = (category == "owner" and "[👑]" or "[🛡️]") .. player.DisplayName
+            if humanoid.DisplayName ~= expected then
+                humanoid.DisplayName = expected
+            end
+        end)
+    end
+    local showTag = config.OneStaffTagsEnabled
+    humanoid.DisplayName = showTag
+        and ((category == "owner" and "[👑]" or "[🛡️]") .. player.DisplayName)
+        or saved.DisplayName
+    humanoid.DisplayDistanceType = showTag
+        and Enum.HumanoidDisplayDistanceType.Viewer
+        or saved.DisplayDistanceType
+end
+
+local function applyESP(player, classification)
     if not player or not player.Parent then return end
 
-    local mains      = getMainMemberships(player)
-    local possible   = getPossibleMemberships(player)
-    local inMain     = #mains > 0
-    local inPossible = #possible > 0
-    local isU        = isUndercover(player, inMain)
-    local is01       = is01Staff(player)
-    local ownerPlayer = isOwner(player)
-    local category   = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
+    classification = classification or classifyStaffPlayer(player)
+    if not classification then return end
+    state.StaffClassificationCache[player.UserId] = classification
+    local mains      = classification.mains
+    local possible   = classification.possible
+    local inPossible = classification.inPossible
+    local category   = classification.category
+    local oldPossibleHighlight = state.PossibleESPFolder:FindFirstChild("PHL_" .. player.UserId)
+    if oldPossibleHighlight then oldPossibleHighlight:Destroy() end
 
-    if not category then return end
+    if not category then
+        removeRoleTag(player.Character)
+        return
+    end
 
     local function attach(char)
         if not char then return end
+        if category == "possible" then
+            removeRoleTag(char)
+            return
+        end
         local key, folder, fillClr, outlineClr
         if category == "owner" then
             key    = "OWNERHL_" .. player.UserId
@@ -954,8 +1123,10 @@ local function applyESP(player)
         hl.OutlineTransparency = 0.1
         hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
         hl.Enabled = config.StaffESPEnabled
+            and (category ~= "01staff" and category ~= "owner" or config.OneStaffESPEnabled)
         if fillClr    then hl.FillColor    = fillClr    end
         if outlineClr then hl.OutlineColor = outlineClr end
+        updateRoleTag(player, category, char)
     end
 
     if category == "owner" then
@@ -985,42 +1156,84 @@ local function applyESP(player)
     else
         local title, body, _ = buildNotif(player, "joined", nil, possible)
         notify(title, body, 5, nil, theme.PossibleStaff)
-        playSound("rbxassetid://8887499160", 2)
     end
 
     if player.Character then attach(player.Character) end
     player.CharacterAdded:Connect(attach)
 end
 
+local function setOneStaffESPEnabled(value)
+    config.OneStaffESPEnabled = value
+    saveSettingWithNotice("OneStaffESPEnabled", value, "PROFILE")
+    for _, highlight in ipairs(state.StaffESPFolder:GetChildren()) do
+        if highlight:IsA("Highlight")
+            and (highlight.Name:match("^O1HL_") or highlight.Name:match("^OWNERHL_")) then
+            highlight.Enabled = config.StaffESPEnabled and value
+        end
+    end
+end
+
+local function setOneStaffTagsEnabled(value)
+    config.OneStaffTagsEnabled = value
+    saveSettingWithNotice("OneStaffTagsEnabled", value, "PROFILE")
+    for _, player in ipairs(Players:GetPlayers()) do
+        local character = player.Character
+        if player ~= localPlayer and character then
+            local category = isOwner(player) and "owner"
+                or (is01Staff(player) and "01staff" or nil)
+            if category then
+                updateRoleTag(player, category, character)
+            else
+                removeRoleTag(character)
+            end
+        end
+    end
+end
+
 local function onPlayerRemoving(player)
-    local mains      = getMainMemberships(player)
-    local possible   = getPossibleMemberships(player)
-    local inMain     = #mains > 0
-    local inPossible = #possible > 0
-    local isU        = isUndercover(player, inMain)
-    local is01       = is01Staff(player)
-    local ownerPlayer = isOwner(player)
-    local category   = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
+    local classification = state.StaffClassificationCache[player.UserId]
+        or classifyStaffPlayer(player)
+    if classification and not classification.category then
+        -- A departing Player can still answer group requests for a brief
+        -- window. Retry before giving up so a late group response is not lost.
+        for _ = 1, 3 do
+            if classification.category then break end
+            task.wait(0.2)
+            local latest = classifyStaffPlayer(player)
+            if classificationPriority(latest.category) > classificationPriority(classification.category) then
+                classification = latest
+            end
+        end
+    end
+    state.StaffClassificationCache[player.UserId] = nil
+    if not classification then return end
+    local mains      = classification.mains
+    local possible   = classification.possible
+    local inPossible = classification.inPossible
+    local category   = classification.category
 
     if not category then return end
-    playSound("rbxassetid://1091083826", 2)
 
     if category == "owner" then
+        playSound("rbxassetid://1091083826", 2)
         local title, body, color = buildNotif(player, "left", mains, possible)
         notify(title, body, 5, nil, color, true, 3, true)
         local hl = state.StaffESPFolder:FindFirstChild("OWNERHL_" .. player.UserId)
         if hl then hl:Destroy() end
     elseif category == "01staff" then
+        playSound("rbxassetid://1091083826", 2)
         local title, body, color = buildNotif(player, "left", mains, possible)
         notify(title, body, 5, nil, color)
         local hl = state.StaffESPFolder:FindFirstChild("O1HL_" .. player.UserId)
         if hl then hl:Destroy() end
     elseif category == "main" then
+        playSound("rbxassetid://1091083826", 2)
         local title, body, color = buildNotif(player, "left", mains, possible)
         notify(title, body, 5, nil, color)
         local hl = state.StaffESPFolder:FindFirstChild("HL_" .. player.UserId)
         if hl then hl:Destroy() end
     elseif category == "undercover" then
+        playSound("rbxassetid://1091083826", 2)
         local dn = getDisplayName(player)
         local body = dn .. " has left the server."
         if inPossible then
@@ -1056,6 +1269,7 @@ main.BackgroundColor3 = theme.BackgroundPrimary
 main.Position = UDim2.new(0.5, -370, 0.5, -340)
 main.Size = UDim2.new(0, 740, 0, 680)
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 16)
+addGradient(main, theme.BackgroundPrimary, Color3.fromRGB(18, 35, 62), 35)
 local mainStroke = Instance.new("UIStroke", main)
 mainStroke.Color = theme.AccentPrimary
 mainStroke.Thickness = 3
@@ -1086,6 +1300,7 @@ topbarLine.BackgroundTransparency = 0.6
 topbarLine.Position = UDim2.new(0, 0, 1, -1)
 topbarLine.Size = UDim2.new(1, 0, 0, 1)
 topbarLine.ZIndex = 6
+addGradient(topbarLine, theme.AccentPrimary, theme.AccentSecondary, 0)
 
 local sideLogo = Instance.new("Frame", topbar)
 sideLogo.BackgroundColor3 = theme.AccentSecondary
@@ -1126,7 +1341,7 @@ sideTitle.Position = UDim2.new(0, 55, 0, 12)
 sideTitle.Size = UDim2.new(0, 128, 0, 30)
 sideTitle.Font = Enum.Font.GothamBold
 -- xx MENU NAME
-sideTitle.Text = "01 STAFF INTELLIGENCE"
+sideTitle.Text = "PROJECT YGGDRASIL"
 sideTitle.TextColor3 = theme.TextPrimary
 sideTitle.TextSize = 12
 sideTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -1145,34 +1360,120 @@ topAnnouncement.Position = UDim2.new(0, 190, 0, 0)
 topAnnouncement.Size = UDim2.new(1, -310, 1, 0)
 topAnnouncement.Font = Enum.Font.GothamBold
 --xx Updated:                                                          --
-topAnnouncement.Text = "STAFF INTELLIGENCE  •  LIVE MONITOR"
+topAnnouncement.Text = "PROJECT YGGDRASIL  ◆  STAFF ALERT"
 topAnnouncement.TextColor3 = theme.TextPrimary
 topAnnouncement.TextSize = 15
 topAnnouncement.TextXAlignment = Enum.TextXAlignment.Left
 topAnnouncement.TextYAlignment = Enum.TextYAlignment.Center
 topAnnouncement.ZIndex = 6
+state.TopAnnouncementGradient = Instance.new("UIGradient", topAnnouncement)
+state.TopAnnouncementGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 225, 255)),
+    ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 255, 255)),
+    ColorSequenceKeypoint.new(0.72, Color3.fromRGB(105, 255, 155)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 220, 130)),
+})
+state.TopAnnouncementGradient.Offset = Vector2.new(-1, 0)
+
+-- Header signal core: a compact reactive equalizer that gives the top bar
+-- its own intelligence-console identity without competing with the title.
+state.HeaderSignal = Instance.new("Frame", topbar)
+state.HeaderSignal.BackgroundTransparency = 1
+state.HeaderSignal.Position = UDim2.new(1, -294, 0, 18)
+state.HeaderSignal.Size = UDim2.new(0, 76, 0, 20)
+state.HeaderSignal.ZIndex = 5
+state.HeaderBars = {}
+for index = 1, 7 do
+    local bar = Instance.new("Frame", state.HeaderSignal)
+    bar.BackgroundColor3 = index % 2 == 0
+        and Color3.fromRGB(105, 255, 155)
+        or Color3.fromRGB(100, 220, 255)
+    bar.BackgroundTransparency = 0.18
+    bar.BorderSizePixel = 0
+    bar.Position = UDim2.new(0, (index - 1) * 10 + 2, 0.5, -4)
+    bar.Size = UDim2.new(0, 4, 0, 8)
+    bar.ZIndex = 5
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+    table.insert(state.HeaderBars, bar)
+end
+state.HeaderSignalLine = Instance.new("Frame", state.HeaderSignal)
+state.HeaderSignalLine.BackgroundColor3 = Color3.fromRGB(120, 225, 255)
+state.HeaderSignalLine.BackgroundTransparency = 0.65
+state.HeaderSignalLine.BorderSizePixel = 0
+state.HeaderSignalLine.Position = UDim2.new(0, 2, 1, -1)
+state.HeaderSignalLine.Size = UDim2.new(0, 70, 0, 1)
+state.HeaderSignalLine.ZIndex = 5
+task.spawn(function()
+    while topbar and topbar.Parent do
+        state.TopAnnouncementGradient.Offset = Vector2.new(-1, 0)
+        tween(
+            state.TopAnnouncementGradient,
+            {Offset = Vector2.new(1, 0)},
+            2.8,
+            Enum.EasingStyle.Linear
+        )
+        for index, bar in ipairs(state.HeaderBars) do
+            local height = 5 + ((index * 7) % 13)
+            tween(
+                bar,
+                {
+                    Size = UDim2.new(0, 4, 0, height),
+                    Position = UDim2.new(0, (index - 1) * 10 + 2, 0.5, -height / 2),
+                    BackgroundTransparency = 0.05,
+                },
+                0.22,
+                Enum.EasingStyle.Quad,
+                Enum.EasingDirection.Out
+            )
+            task.wait(0.08)
+        end
+        for index, bar in ipairs(state.HeaderBars) do
+            local height = 5 + (((index + 3) * 5) % 13)
+            tween(
+                bar,
+                {
+                    Size = UDim2.new(0, 4, 0, height),
+                    Position = UDim2.new(0, (index - 1) * 10 + 2, 0.5, -height / 2),
+                },
+                0.22,
+                Enum.EasingStyle.Quad,
+                Enum.EasingDirection.InOut
+            )
+        end
+        task.wait(2.4)
+    end
+end)
 
 state.EditionBadge = Instance.new("TextLabel", topbar)
+state.EditionBadge.BackgroundTransparency = is01Staff(localPlayer) and 1 or 0.08
 state.EditionBadge.BackgroundColor3 = isOwner(localPlayer)
     and Color3.fromRGB(245, 225, 45)
-    or (is01Staff(localPlayer) and Color3.fromRGB(190, 28, 58) or Color3.fromRGB(255, 190, 35))
-state.EditionBadge.BackgroundTransparency = 0.08
-state.EditionBadge.Position = UDim2.new(1, -116, 0, 13)
-state.EditionBadge.Size = UDim2.new(0, 101, 0, 29)
+    or Color3.fromRGB(255, 168, 62)
+state.EditionBadge.Position = is01Staff(localPlayer)
+    and UDim2.new(1, -128, 0, 12)
+    or UDim2.new(1, -116, 0, 13)
+state.EditionBadge.Size = is01Staff(localPlayer)
+    and UDim2.new(0, 128, 0, 30)
+    or UDim2.new(0, 101, 0, 29)
 state.EditionBadge.Font = Enum.Font.GothamBold
 state.EditionBadge.Text = isOwner(localPlayer)
-    and "OWNER"
+    and "OVERSEER"
     or (is01Staff(localPlayer) and "01 STAFF" or "PREMIUM")
 state.EditionBadge.TextColor3 = is01Staff(localPlayer)
-    and Color3.fromRGB(255, 240, 245)
+    and theme.TextPrimary
     or Color3.fromRGB(30, 22, 5)
-state.EditionBadge.TextSize = 11
-state.EditionBadge.ZIndex = 8
+state.EditionBadge.TextStrokeTransparency = 1
+state.EditionBadge.TextSize = is01Staff(localPlayer) and 12 or 11
+state.EditionBadge.TextXAlignment = is01Staff(localPlayer)
+    and Enum.TextXAlignment.Right
+    or Enum.TextXAlignment.Center
+state.EditionBadge.ZIndex = is01Staff(localPlayer) and 6 or 8
 Instance.new("UICorner", state.EditionBadge).CornerRadius = UDim.new(1, 0)
 state.EditionBadgeStroke = Instance.new("UIStroke", state.EditionBadge)
 state.EditionBadgeStroke.Color = Color3.fromRGB(255, 245, 160)
 state.EditionBadgeStroke.Thickness = 1
 state.EditionBadgeStroke.Transparency = 0.15
+state.EditionBadgeStroke.Enabled = not is01Staff(localPlayer)
 local badgeGradient = Instance.new("UIGradient", state.EditionBadge)
 badgeGradient.Color = isOwner(localPlayer)
     and ColorSequence.new(
@@ -1180,21 +1481,27 @@ badgeGradient.Color = isOwner(localPlayer)
         Color3.fromRGB(255, 255, 220),
         Color3.fromRGB(205, 220, 35)
     )
-    or (is01Staff(localPlayer) and ColorSequence.new(
-        Color3.fromRGB(135, 12, 42),
-        Color3.fromRGB(255, 105, 125),
-        Color3.fromRGB(175, 20, 60)
-    ) or ColorSequence.new(
+    or (is01Staff(localPlayer) and ColorSequence.new({
+         ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 225, 255)),
+         ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+         ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 130, 255))
+    }) or ColorSequence.new(
         Color3.fromRGB(255, 205, 45),
         Color3.fromRGB(255, 250, 145),
         Color3.fromRGB(235, 170, 25)
     ))
+badgeGradient.Enabled = true
 badgeGradient.Offset = Vector2.new(-1, 0)
 task.spawn(function()
     while state.EditionBadge.Parent do
         badgeGradient.Offset = Vector2.new(-1, 0)
-        tween(badgeGradient, {Offset = Vector2.new(1, 0)}, 2.4, Enum.EasingStyle.Linear)
-        task.wait(3.2)
+        tween(
+            badgeGradient,
+            {Offset = Vector2.new(1, 0)},
+            is01Staff(localPlayer) and 2.2 or 2.4,
+            Enum.EasingStyle.Linear
+        )
+        task.wait(is01Staff(localPlayer) and 5.2 or 3.2)
     end
 end)
 
@@ -1253,9 +1560,9 @@ state.SidebarFooter.BackgroundTransparency = 1
 state.SidebarFooter.Position = UDim2.new(0, 14, 1, -35)
 state.SidebarFooter.Size = UDim2.new(1, -28, 0, 24)
 state.SidebarFooter.Font = Enum.Font.GothamBold
-state.SidebarFooter.Text = "◆  01 PREMIUM ACCESS"
+state.SidebarFooter.Text = "◆  PREMIUM ACCESS"
 state.SidebarFooter.TextColor3 = Color3.fromRGB(255, 210, 65)
-state.SidebarFooter.TextSize = 10
+state.SidebarFooter.TextSize = 15
 state.SidebarFooter.TextXAlignment = Enum.TextXAlignment.Center
 
 local pages = Instance.new("Frame", main)
@@ -1269,6 +1576,7 @@ sidebarDivider.BackgroundTransparency = 0.15
 sidebarDivider.BorderSizePixel = 0
 sidebarDivider.Position = UDim2.new(0, 149, 0, 55)
 sidebarDivider.Size = UDim2.new(0, 2, 1, -55)
+addGradient(sidebarDivider, theme.AccentPrimary, theme.AccentSecondary, 90)
 
 local function createPage(name)
     local p = Instance.new("ScrollingFrame", pages)
@@ -1277,8 +1585,26 @@ local function createPage(name)
     p.Position = UDim2.new(0, 15, 0, 20)
     p.Size = UDim2.new(1, -30, 1, -40)
     p.CanvasSize = UDim2.new(0, 0, 0, 500)
-    p.ScrollBarThickness = 0
+    p.ScrollBarThickness = 4
+    p.ScrollBarImageColor3 = theme.AccentSecondary
+    p.ScrollBarImageTransparency = 0.18
     p.Visible = false
+    local railColors = {
+        Profile = theme.AccentPrimary,
+        Staff = theme.AccentSteel,
+        Information = theme.AccentSecondary,
+        Target = theme.AccentSteel,
+        Aim = theme.AccentPrimary,
+        Fling = theme.AccentSecondary,
+    }
+    local rail = Instance.new("Frame", p)
+    rail.Name = "PageAccentRail"
+    rail.BackgroundColor3 = railColors[name] or theme.AccentSecondary
+    rail.BackgroundTransparency = 0.2
+    rail.BorderSizePixel = 0
+    rail.Position = UDim2.new(0, -7, 0, 4)
+    rail.Size = UDim2.new(0, 3, 0, 38)
+    Instance.new("UICorner", rail).CornerRadius = UDim.new(1, 0)
     return p
 end
 
@@ -1293,7 +1619,7 @@ local autoKill = {
     Config = config.AutoKill,
     Target = nil,
     SelectedTargets = {},
-    SelectedUserIds = decodeUserIdSet(config.AutoKill.SavedTargets),
+    SelectedUserIds = {},
     LeavingUserIds = {},
     TargetOrder = {},
     TargetIndex = 0,
@@ -1320,15 +1646,6 @@ local autoKill = {
     PredictionVector = { X = 0, Y = 0, Z = 0 },
 }
 
-local function saveAutoKillTargetSelection()
-    if not autoKill.Config.SaveSettings then return end
-    autoKill.SelectedUserIds[2309457259] = nil
-    saveSettingWithNotice(
-        "AutoKillTargets",
-        encodeUserIdSet(autoKill.SelectedUserIds),
-        "AUTO KILL"
-    )
-end
 autoKill.UI.Page = createPage("Auto Kill")
 autoKill.UI.Page.ScrollBarThickness = 3
 autoKill.UI.Page.ScrollBarImageColor3 = theme.AccentSecondary
@@ -1338,6 +1655,7 @@ autoKill.UI.Page.ScrollBarImageColor3 = theme.AccentSecondary
 local autoKillListFrame
 local persistentListFrame
 local autoKillRefreshPlayerList
+local autoKillListSignature
 -- Staff List page: ScrollingFrame so the whole page scrolls like the other submenus.
 -- Each section also has its OWN inner ScrollingFrame for per-category scrolling.
 local staffListPage  = Instance.new("ScrollingFrame", pages)
@@ -1358,26 +1676,37 @@ local currentPage = profilePage   -- opens on the account page by default
 currentPage.Visible = true
 
 local function navBtn(name, page, y)
+    local navColors = {
+        theme.AccentPrimary,
+        theme.AccentSecondary,
+        theme.AccentSteel,
+        theme.AccentPrimary,
+        theme.AccentSteel,
+        theme.AccentSecondary,
+        theme.AccentPrimary,
+        theme.AccentSecondary,
+    }
+    local navColor = navColors[(math.floor(y / 45) % #navColors) + 1]
     local b = Instance.new("TextButton", nav)
-    b.BackgroundColor3 = theme.BackgroundTertiary
-    b.BackgroundTransparency = page == currentPage and 0.42 or 0.8
+    b.BackgroundColor3 = navColor
+    b.BackgroundTransparency = page == currentPage and 0.18 or 0.82
     b.Position = UDim2.new(0, 10, 0, y)
     b.Size = UDim2.new(1, -20, 0, 35)
     b.Font = Enum.Font.GothamMedium
     b.Text = name
-    b.TextColor3 = theme.TextSecondary
-    b.TextSize = 12
+    b.TextColor3 = page == currentPage and theme.TextPrimary or theme.TextSecondary
+    b.TextSize = 13
     b.AutoButtonColor = false
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
 
     local s = Instance.new("UIStroke", b)
-    s.Color = theme.AccentSecondary
-    s.Thickness = 1
+    s.Color = navColor
+    s.Thickness = 2
     s.Enabled = (page == currentPage)
 
     local activeBar = Instance.new("Frame", b)
     activeBar.Name = "NavActiveBar"
-    activeBar.BackgroundColor3 = theme.AccentPrimary
+    activeBar.BackgroundColor3 = navColor
     activeBar.BorderSizePixel = 0
     activeBar.Position = UDim2.new(0, 0, 0.5, -9)
     activeBar.Size = UDim2.new(0, 3, 0, 18)
@@ -1405,33 +1734,42 @@ local function navBtn(name, page, y)
         end)
     end)
     b.MouseEnter:Connect(function()
-        tween(b, {BackgroundTransparency = 0.48}, 0.15, Enum.EasingStyle.Quad)
+        tween(b, {BackgroundTransparency = 0.38}, 0.15, Enum.EasingStyle.Quad)
     end)
     b.MouseLeave:Connect(function()
-        tween(b, {BackgroundTransparency = page == currentPage and 0.42 or 0.8}, 0.2, Enum.EasingStyle.Quad)
+        tween(b, {BackgroundTransparency = page == currentPage and 0.18 or 0.82}, 0.2, Enum.EasingStyle.Quad)
     end)
 end
 
 -- SUBMENU
-navBtn("Profile", profilePage, 0)
-navBtn("Info / Updates", infoPage, 45)
-navBtn("Staff Alerts", staffPage, 90)
-navBtn("Staff List", staffListPage, 135)
-navBtn("Aim", aimPage, 180)
-navBtn("Target / Extra", targetPage, 225)
-navBtn("Fling", flingPage, 270)
-navBtn("Auto Kill", autoKill.UI.Page, 315)
+navBtn("PROFILE", profilePage, 0)
+navBtn("INFO / UPDATES", infoPage, 45)
+navBtn("STAFF ALERTS", staffPage, 90)
+navBtn("STAFF LIST", staffListPage, 135)
+navBtn("AIM", aimPage, 180)
+navBtn("TARGET / EXTRA", targetPage, 225)
+navBtn("FLING", flingPage, 270)
+navBtn("AUTO KILL", autoKill.UI.Page, 315)
 
-local function createButton(name, desc, yPos, callback, parent)
+local function createButton(name, desc, yPos, callback, parent, accentOverride)
+    local buttonAccents = {theme.AccentPrimary, theme.AccentWarm, theme.AccentPink, theme.Success}
+    local accent = accentOverride or buttonAccents[(math.floor(yPos / 55) % #buttonAccents) + 1]
     local f = Instance.new("Frame", parent or staffPage)
     f.BackgroundColor3 = theme.BackgroundSecondary
     f.Position = UDim2.new(0, 0, 0, yPos)
     f.Size = UDim2.new(1, 0, 0, 55)
     Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    addGradient(f, theme.BackgroundSecondary, theme.BackgroundTertiary, 0)
     local s = Instance.new("UIStroke", f)
-    s.Color = theme.AccentSecondary
+    s.Color = accent
     s.Thickness = 2
     s.Transparency = 0.5
+    local accentBar = Instance.new("Frame", f)
+    accentBar.BackgroundColor3 = accent
+    accentBar.BorderSizePixel = 0
+    accentBar.Position = UDim2.new(0, 0, 0, 9)
+    accentBar.Size = UDim2.new(0, 3, 1, -18)
+    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(1, 0)
 
     local tl = Instance.new("TextLabel", f)
     tl.BackgroundTransparency = 1
@@ -1454,7 +1792,7 @@ local function createButton(name, desc, yPos, callback, parent)
     dl.TextXAlignment = Enum.TextXAlignment.Left
 
     local bg = Instance.new("Frame", f)
-    bg.BackgroundColor3 = theme.BackgroundTertiary
+    bg.BackgroundColor3 = accent
     bg.Position = UDim2.new(1, -80, 0.5, -14)
     bg.Size = UDim2.new(0, 70, 0, 28)
     Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
@@ -1465,7 +1803,7 @@ local function createButton(name, desc, yPos, callback, parent)
     btnText.Font = Enum.Font.GothamBold
     btnText.Text = "RUN"
     btnText.TextColor3 = theme.TextPrimary
-    btnText.TextSize = 12
+    btnText.TextSize = 13
 
     local click = Instance.new("TextButton", f)
     click.BackgroundTransparency = 1
@@ -1473,31 +1811,41 @@ local function createButton(name, desc, yPos, callback, parent)
     click.Text = ""
 
     click.MouseButton1Click:Connect(function()
-        tween(bg, {BackgroundColor3 = theme.AccentPrimary}, 0.1)
+        tween(bg, {BackgroundColor3 = theme.TextPrimary}, 0.1)
         task.wait(0.1)
-        tween(bg, {BackgroundColor3 = theme.BackgroundTertiary}, 0.1)
+        tween(bg, {BackgroundColor3 = accent}, 0.1)
         callback()
     end)
     click.MouseEnter:Connect(function()
         tween(s, {Transparency = 0.15}, 0.15)
-        tween(bg, {BackgroundColor3 = theme.AccentSecondary}, 0.15)
+        tween(bg, {BackgroundColor3 = theme.TextPrimary}, 0.15)
     end)
     click.MouseLeave:Connect(function()
         tween(s, {Transparency = 0.5}, 0.2)
-        tween(bg, {BackgroundColor3 = theme.BackgroundTertiary}, 0.2)
+        tween(bg, {BackgroundColor3 = accent}, 0.2)
     end)
 end
 
 local function createToggle(name, desc, yPos, initialValue, callback, parent, onColor, offColor)
+    local enabledColor = onColor or theme.AccentPrimary
+    local disabledColor = offColor or Color3.fromRGB(70, 59, 96)
     local f = Instance.new("Frame", parent or staffPage)
     f.BackgroundColor3 = theme.BackgroundSecondary
     f.Position = UDim2.new(0, 0, 0, yPos)
     f.Size = UDim2.new(1, 0, 0, 55)
     Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    addGradient(f, theme.BackgroundSecondary, theme.BackgroundTertiary, 0)
     local s = Instance.new("UIStroke", f)
-    s.Color = theme.AccentSecondary
+    s.Color = enabledColor
     s.Thickness = 2
     s.Transparency = initialValue and 0.2 or 0.8
+    local accentBar = Instance.new("Frame", f)
+    accentBar.BackgroundColor3 = enabledColor
+    accentBar.BackgroundTransparency = initialValue and 0 or 0.55
+    accentBar.BorderSizePixel = 0
+    accentBar.Position = UDim2.new(0, 0, 0, 9)
+    accentBar.Size = UDim2.new(0, 3, 1, -18)
+    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(1, 0)
 
     local tl = Instance.new("TextLabel", f)
     tl.BackgroundTransparency = 1
@@ -1518,9 +1866,6 @@ local function createToggle(name, desc, yPos, initialValue, callback, parent, on
     dl.TextColor3 = theme.TextSecondary
     dl.TextSize = 12
     dl.TextXAlignment = Enum.TextXAlignment.Left
-
-    local enabledColor = onColor or theme.AccentPrimary
-    local disabledColor = offColor or theme.BackgroundTertiary
 
     local box = Instance.new("Frame", f)
     box.BackgroundColor3 = initialValue and enabledColor or disabledColor
@@ -1543,6 +1888,8 @@ local function createToggle(name, desc, yPos, initialValue, callback, parent, on
         check.Text = value and "✓" or ""
         tween(box, {BackgroundColor3 = value and enabledColor or disabledColor}, 0.2)
         tween(s, {Transparency = value and 0.2 or 0.8}, 0.3)
+        tween(accentBar, {BackgroundColor3 = value and enabledColor or disabledColor}, 0.2)
+        tween(accentBar, {BackgroundTransparency = value and 0 or 0.55}, 0.2)
     end
     function control.SetValue(value, invokeCallback)
         render(value)
@@ -1571,7 +1918,974 @@ local function createToggle(name, desc, yPos, initialValue, callback, parent, on
     return control
 end
 
+-- Overseer stomp presentation. Every client running this script observes the
+-- Overseer's replicated character state and renders Yggdrasil locally.
+local stompEffects = {
+    CharacterConnection = nil,
+    PlayerAddedConnection = nil,
+    PlayerRemovingConnection = nil,
+    SourcePlayer = nil,
+    InputConnection = nil,
+    Connections = {},
+    PendingStomp = nil,
+    Generation = 0,
+    LastEffectAt = 0,
+}
+
+local STOMP_ANIMATION_IDS = {
+    ["2788306498"] = true,
+    ["2788838708"] = true,
+}
+
+local STOMP_STATE_NAMES = {
+    stomp = true,
+    stomping = true,
+    stompactive = true,
+    stompstarted = true,
+    attacking = true,
+}
+
+function stompEffects.DestroyLater(instance, delaySeconds)
+    task.delay(delaySeconds, function()
+        if instance and instance.Parent then
+            instance:Destroy()
+        end
+    end)
+end
+
+function stompEffects.CreateDisc(position, color, startDiameter, endDiameter, lifetime, transparency)
+    local disc = Instance.new("Part")
+    disc.Name = "PremiumStompEffect"
+    disc.Anchored = true
+    disc.CanCollide = false
+    disc.CanQuery = false
+    disc.CanTouch = false
+    disc.CastShadow = false
+    disc.Material = Enum.Material.Neon
+    disc.Shape = Enum.PartType.Cylinder
+    disc.Color = color
+    disc.Transparency = transparency
+    disc.Size = Vector3.new(0.06, startDiameter, startDiameter)
+    disc.CFrame = CFrame.new(position + Vector3.new(0, 0.04, 0))
+        * CFrame.Angles(0, 0, math.rad(90))
+    disc.Parent = Workspace
+
+    TweenService:Create(
+        disc,
+        TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            Size = Vector3.new(0.03, endDiameter, endDiameter),
+            Transparency = 1,
+        }
+    ):Play()
+    stompEffects.DestroyLater(disc, lifetime + 0.1)
+end
+
+function stompEffects.IsEnabled()
+    -- Only an explicit Profile toggle-off disables the effect. A fresh script
+    -- execution always starts enabled and never loads a saved opt-out.
+    return config.OverseerStompEffectsEnabled ~= false
+end
+
+function stompEffects.ClearConnections()
+    if stompEffects.InputConnection then
+        stompEffects.InputConnection:Disconnect()
+        stompEffects.InputConnection = nil
+    end
+    for _, connection in ipairs(stompEffects.Connections) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+    table.clear(stompEffects.Connections)
+    stompEffects.CancelPending()
+end
+
+function stompEffects.ShowScreenBurst(color, startTransparency, lifetime)
+    local flashGui = Instance.new("ScreenGui")
+    flashGui.Name = "PremiumStompScreenBurst"
+    flashGui.IgnoreGuiInset = true
+    flashGui.DisplayOrder = 999998
+    flashGui.ResetOnSpawn = false
+    flashGui.Parent = CoreGui.RobloxGui
+
+    local flash = Instance.new("Frame")
+    flash.BorderSizePixel = 0
+    flash.BackgroundColor3 = color
+    flash.BackgroundTransparency = startTransparency
+    flash.Size = UDim2.fromScale(1, 1)
+    flash.Parent = flashGui
+
+    TweenService:Create(
+        flash,
+        TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {BackgroundTransparency = 1}
+    ):Play()
+    stompEffects.DestroyLater(flashGui, lifetime + 0.08)
+end
+
+function stompEffects.CreateBurstPart(position, color, startSize, endSize, lifetime, startTransparency)
+    local burst = Instance.new("Part")
+    burst.Name = "PremiumStompBurstSphere"
+    burst.Anchored = true
+    burst.CanCollide = false
+    burst.CanQuery = false
+    burst.CanTouch = false
+    burst.CastShadow = false
+    burst.Material = Enum.Material.Neon
+    burst.Shape = Enum.PartType.Ball
+    burst.Color = color
+    burst.Transparency = startTransparency
+    burst.Size = Vector3.new(startSize, startSize, startSize)
+    burst.Position = position + Vector3.new(0, 0.6, 0)
+    burst.Parent = Workspace
+    TweenService:Create(
+        burst,
+        TweenInfo.new(lifetime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            Size = Vector3.new(endSize, endSize, endSize),
+            Transparency = 1,
+        }
+    ):Play()
+    stompEffects.DestroyLater(burst, lifetime + 0.08)
+end
+
+function stompEffects.EmitParticles(anchor, firstColor, secondColor, amount, speed, lifetime)
+    local particles = Instance.new("ParticleEmitter")
+    particles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    particles.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, firstColor),
+        ColorSequenceKeypoint.new(1, secondColor),
+    })
+    particles.LightEmission = 1
+    particles.Lifetime = lifetime
+    particles.Speed = speed
+    particles.SpreadAngle = Vector2.new(180, 30)
+    particles.Drag = 7
+    particles.Rate = 0
+    particles.Rotation = NumberRange.new(0, 360)
+    particles.RotSpeed = NumberRange.new(-180, 180)
+    particles.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.55),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    particles.Parent = anchor
+    particles:Emit(amount)
+end
+
+function stompEffects.CreateLine(parent, fromPosition, toPosition, color, width, transparency)
+    local distance = (toPosition - fromPosition).Magnitude
+    if distance <= 0.01 then return nil end
+
+    local line = Instance.new("Part")
+    line.Name = "StompEnergyLine"
+    line.Anchored = true
+    line.CanCollide = false
+    line.CanQuery = false
+    line.CanTouch = false
+    line.CastShadow = false
+    line.Material = Enum.Material.Neon
+    line.Color = color
+    line.Transparency = transparency or 0
+    line.Size = Vector3.new(width, width, distance)
+    line.CFrame = CFrame.lookAt(fromPosition, toPosition) * CFrame.new(0, 0, -distance / 2)
+    line.Parent = parent
+    return line
+end
+
+function stompEffects.CreateOrb(parent, position, color, size, transparency)
+    local orb = Instance.new("Part")
+    orb.Name = "StompEnergyOrb"
+    orb.Anchored = true
+    orb.CanCollide = false
+    orb.CanQuery = false
+    orb.CanTouch = false
+    orb.CastShadow = false
+    orb.Material = Enum.Material.Neon
+    orb.Shape = Enum.PartType.Ball
+    orb.Color = color
+    orb.Transparency = transparency or 0.15
+    orb.Size = Vector3.new(size, size, size)
+    orb.Position = position
+    orb.Parent = parent
+    return orb
+end
+
+function stompEffects.AddPostEffects(name, tint, brightness, contrast, blurSize, lifetime)
+    local lighting = game:GetService("Lighting")
+
+    local color = Instance.new("ColorCorrectionEffect")
+    color.Name = name .. "Color"
+    color.TintColor = Color3.new(1, 1, 1)
+    color.Brightness = 0
+    color.Contrast = 0
+    color.Saturation = 0
+    color.Parent = lighting
+
+    local bloom = Instance.new("BloomEffect")
+    bloom.Name = name .. "Bloom"
+    bloom.Intensity = 0
+    bloom.Size = 42
+    bloom.Threshold = 0.75
+    bloom.Parent = lighting
+
+    local blur = Instance.new("BlurEffect")
+    blur.Name = name .. "Blur"
+    blur.Size = 0
+    blur.Parent = lighting
+
+    TweenService:Create(color, TweenInfo.new(0.45), {
+        TintColor = tint,
+        Brightness = brightness,
+        Contrast = contrast,
+        Saturation = 0.12,
+    }):Play()
+    TweenService:Create(bloom, TweenInfo.new(0.35), {Intensity = 2.2}):Play()
+    TweenService:Create(blur, TweenInfo.new(0.18), {Size = blurSize}):Play()
+    task.delay(0.18, function()
+        if blur.Parent then
+            TweenService:Create(blur, TweenInfo.new(0.65), {Size = 0}):Play()
+        end
+    end)
+
+    task.delay(lifetime - 1, function()
+        if color.Parent then
+            TweenService:Create(color, TweenInfo.new(1), {
+                TintColor = Color3.new(1, 1, 1),
+                Brightness = 0,
+                Contrast = 0,
+                Saturation = 0,
+            }):Play()
+        end
+        if bloom.Parent then
+            TweenService:Create(bloom, TweenInfo.new(1), {Intensity = 0}):Play()
+        end
+    end)
+    stompEffects.DestroyLater(color, lifetime)
+    stompEffects.DestroyLater(bloom, lifetime)
+    stompEffects.DestroyLater(blur, lifetime)
+end
+
+function stompEffects.PlayTrueDespair(impactPosition)
+    local folder = Instance.new("Folder")
+    folder.Name = "TrueDespairStomp"
+    folder.Parent = Workspace
+
+    stompEffects.ShowScreenBurst(Color3.fromRGB(255, 235, 220), 0.2, 0.22)
+    stompEffects.AddPostEffects(
+        "TrueDespair",
+        Color3.fromRGB(125, 45, 55),
+        -0.38,
+        0.48,
+        18,
+        8
+    )
+
+    stompEffects.CreateDisc(impactPosition, Color3.fromRGB(255, 25, 35), 2, 72, 0.42, 0.1)
+    stompEffects.CreateDisc(impactPosition, Color3.fromRGB(55, 0, 5), 8, 118, 0.78, 0.3)
+
+    local core = stompEffects.CreateOrb(
+        folder,
+        impactPosition + Vector3.new(0, 12, 0),
+        Color3.fromRGB(190, 0, 18),
+        2,
+        0.05
+    )
+    TweenService:Create(
+        core,
+        TweenInfo.new(0.63, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+        {Size = Vector3.new(86, 86, 86), Transparency = 0.72}
+    ):Play()
+
+    local innerCore = stompEffects.CreateOrb(
+        folder,
+        impactPosition + Vector3.new(0, 10, 0),
+        Color3.fromRGB(20, 0, 2),
+        1,
+        0.08
+    )
+    TweenService:Create(
+        innerCore,
+        TweenInfo.new(0.53, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {Size = Vector3.new(58, 58, 58), Transparency = 0.46}
+    ):Play()
+
+    for index = 1, 38 do
+        local angle = (index / 38) * math.pi * 2 + math.random() * 0.35
+        local reach = math.random(52, 112)
+        local startPosition = impactPosition + Vector3.new(0, math.random(1, 5), 0)
+        local middleOne = impactPosition + Vector3.new(
+            math.cos(angle) * reach * 0.34,
+            math.random(10, 44),
+            math.sin(angle) * reach * 0.34
+        )
+        local middleTwo = impactPosition + Vector3.new(
+            math.cos(angle + math.random(-20, 20) / 100) * reach * 0.7,
+            math.random(24, 78),
+            math.sin(angle + math.random(-20, 20) / 100) * reach * 0.7
+        )
+        local endPosition = impactPosition + Vector3.new(
+            math.cos(angle) * reach,
+            math.random(5, 92),
+            math.sin(angle) * reach
+        )
+
+        task.delay(index * 0.018, function()
+            if not folder.Parent then return end
+            local width = math.random(8, 22) / 10
+            local first = stompEffects.CreateLine(folder, startPosition, middleOne, Color3.fromRGB(255, 0, 28), width, 0.08)
+            local second = stompEffects.CreateLine(folder, middleOne, middleTwo, Color3.fromRGB(175, 0, 20), width * 0.8, 0.12)
+            local third = stompEffects.CreateLine(folder, middleTwo, endPosition, Color3.fromRGB(90, 0, 12), width * 0.55, 0.2)
+            for _, line in ipairs({first, second, third}) do
+                if line then
+                    TweenService:Create(line, TweenInfo.new(5.5), {Transparency = 1}):Play()
+                end
+            end
+        end)
+    end
+
+    for index = 1, 18 do
+        local angle = (index / 18) * math.pi * 2
+        local base = impactPosition + Vector3.new(math.cos(angle) * 24, 0.4, math.sin(angle) * 24)
+        local top = base + Vector3.new(math.random(-8, 8), math.random(48, 98), math.random(-8, 8))
+        local pillar = stompEffects.CreateLine(folder, base, top, Color3.fromRGB(255, 10, 32), 1.05, 0.22)
+        if pillar then
+            TweenService:Create(pillar, TweenInfo.new(4.5), {Transparency = 1}):Play()
+        end
+    end
+
+    for _ = 1, 28 do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(18, 105)
+        local orb = stompEffects.CreateOrb(
+            folder,
+            impactPosition + Vector3.new(
+                math.cos(angle) * radius,
+                math.random(8, 100),
+                math.sin(angle) * radius
+            ),
+            Color3.fromRGB(255, 0, 35),
+            math.random(4, 14) / 5,
+            0.2
+        )
+        TweenService:Create(orb, TweenInfo.new(5), {
+            Position = orb.Position + Vector3.new(0, math.random(16, 42), 0),
+            Transparency = 1,
+        }):Play()
+    end
+
+    task.delay(0.45, function()
+        stompEffects.ShowScreenBurst(Color3.fromRGB(175, 0, 22), 0.62, 0.65)
+    end)
+    stompEffects.DestroyLater(folder, 7)
+end
+
+function stompEffects.PlayYggdrasil(impactPosition)
+    local folder = Instance.new("Folder")
+    folder.Name = "YggdrasilStomp"
+    folder.Parent = Workspace
+
+    stompEffects.ShowScreenBurst(Color3.fromRGB(210, 255, 225), 0.52, 0.4)
+    stompEffects.AddPostEffects(
+        "Yggdrasil",
+        Color3.fromRGB(125, 255, 185),
+        0.08,
+        0.12,
+        12,
+        8.5
+    )
+
+    stompEffects.CreateDisc(impactPosition, Color3.fromRGB(225, 255, 115), 2, 70, 0.41, 0.03)
+    stompEffects.CreateDisc(impactPosition, Color3.fromRGB(55, 255, 95), 8, 124, 0.73, 0.24)
+
+    for index = 1, 24 do
+        local angle = (index / 24) * math.pi * 2 + math.random() * 0.18
+        local rootEnd = impactPosition + Vector3.new(
+            math.cos(angle) * math.random(48, 102),
+            0.28,
+            math.sin(angle) * math.random(48, 102)
+        )
+        local rootLine = stompEffects.CreateLine(
+            folder,
+            impactPosition + Vector3.new(0, 0.35, 0),
+            rootEnd,
+            index % 2 == 0 and Color3.fromRGB(218, 255, 90) or Color3.fromRGB(25, 255, 105),
+            math.random(8, 20) / 10,
+            0.08
+        )
+        if rootLine then
+            TweenService:Create(rootLine, TweenInfo.new(6.5), {Transparency = 1}):Play()
+        end
+    end
+
+    local crown = impactPosition + Vector3.new(0, 138, 0)
+    local trunk = stompEffects.CreateLine(
+        folder,
+        impactPosition + Vector3.new(0, 0.5, 0),
+        crown,
+        Color3.fromRGB(190, 255, 75),
+        10,
+        0.02
+    )
+    trunk.Size = Vector3.new(0.4, 0.4, trunk.Size.Z)
+    TweenService:Create(
+        trunk,
+        TweenInfo.new(0.33, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+        {Size = Vector3.new(10, 10, trunk.Size.Z)}
+    ):Play()
+
+    local trunkLight = Instance.new("PointLight")
+    trunkLight.Color = Color3.fromRGB(145, 255, 90)
+    trunkLight.Brightness = 12
+    trunkLight.Range = 110
+    trunkLight.Shadows = false
+    trunkLight.Parent = trunk
+
+    for index = 1, 44 do
+        local angle = (index / 44) * math.pi * 2 + math.random() * 0.12
+        local reach = math.random(72, 142)
+        local branchJoint = crown + Vector3.new(
+            math.cos(angle) * reach * 0.34,
+            math.random(-12, 22),
+            math.sin(angle) * reach * 0.34
+        )
+        local branchEnd = crown + Vector3.new(
+            math.cos(angle) * reach,
+            math.random(-42, 48),
+            math.sin(angle) * reach
+        )
+        local branchColor = index % 3 == 0
+            and Color3.fromRGB(240, 255, 120)
+            or Color3.fromRGB(75, 255, 110)
+        local first = stompEffects.CreateLine(folder, crown, branchJoint, branchColor, math.random(11, 27) / 10, 0.02)
+        local second = stompEffects.CreateLine(folder, branchJoint, branchEnd, branchColor, math.random(7, 18) / 10, 0.06)
+        for _, branch in ipairs({first, second}) do
+            if branch then
+                branch.Size = Vector3.new(0.15, 0.15, branch.Size.Z)
+                TweenService:Create(
+                    branch,
+                TweenInfo.new(0.3, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+                    {Size = Vector3.new(index % 2 == 0 and 2.1 or 1.3, index % 2 == 0 and 2.1 or 1.3, branch.Size.Z)}
+                ):Play()
+                TweenService:Create(branch, TweenInfo.new(6.5), {Transparency = 1}):Play()
+            end
+        end
+    end
+
+    for _ = 1, 36 do
+        local angle = math.random() * math.pi * 2
+        local radius = math.random(24, 138)
+        local orb = stompEffects.CreateOrb(
+            folder,
+            impactPosition + Vector3.new(
+                math.cos(angle) * radius,
+                math.random(18, 178),
+                math.sin(angle) * radius
+            ),
+            math.random() > 0.25 and Color3.fromRGB(100, 255, 115) or Color3.fromRGB(245, 255, 155),
+            math.random(5, 18) / 4,
+            0.08
+        )
+        TweenService:Create(orb, TweenInfo.new(6), {
+            Position = orb.Position + Vector3.new(math.random(-12, 12), math.random(24, 58), math.random(-12, 12)),
+            Transparency = 1,
+        }):Play()
+    end
+
+    task.delay(5.15, function()
+        if not folder.Parent then return end
+        local void = stompEffects.CreateOrb(folder, crown, Color3.fromRGB(0, 0, 0), 2, 0)
+        TweenService:Create(
+            void,
+            TweenInfo.new(0.45, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+            {Size = Vector3.new(92, 92, 92)}
+        ):Play()
+        task.delay(0.41, function()
+            if void.Parent then
+                stompEffects.ShowScreenBurst(Color3.fromRGB(245, 255, 120), 0.02, 0.65)
+                TweenService:Create(void, TweenInfo.new(0.2), {Transparency = 1}):Play()
+
+                if trunk.Parent then
+                    TweenService:Create(
+                        trunk,
+                        TweenInfo.new(0.2, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out),
+                        {Size = Vector3.new(28, 28, trunk.Size.Z), Transparency = 0.05}
+                    ):Play()
+                    task.delay(0.18, function()
+                        if trunk.Parent then
+                            TweenService:Create(
+                                trunk,
+                                TweenInfo.new(0.65, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                                {Size = Vector3.new(92, 92, trunk.Size.Z), Transparency = 1}
+                            ):Play()
+                        end
+                    end)
+                end
+
+                if trunkLight.Parent then
+                    TweenService:Create(
+                        trunkLight,
+                        TweenInfo.new(0.7, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                        {Brightness = 0, Range = 8}
+                    ):Play()
+                end
+
+                for index = 1, 24 do
+                    local angle = (index / 24) * math.pi * 2
+                    local radius = math.random(95, 165)
+                    local endPosition = crown + Vector3.new(
+                        math.cos(angle) * radius,
+                        math.random(-45, 45),
+                        math.sin(angle) * radius
+                    )
+                    local burstRay = stompEffects.CreateLine(
+                        folder,
+                        crown,
+                        endPosition,
+                        index % 3 == 0
+                            and Color3.fromRGB(255, 255, 150)
+                            or Color3.fromRGB(85, 255, 105),
+                        math.random(8, 18) / 10,
+                        0.02
+                    )
+                    if burstRay then
+                        TweenService:Create(
+                            burstRay,
+                            TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+                            {Transparency = 1}
+                        ):Play()
+                    end
+                end
+            end
+        end)
+    end)
+    task.delay(5.9, function()
+        if trunkLight.Parent then
+            TweenService:Create(trunkLight, TweenInfo.new(1), {Brightness = 0, Range = 5}):Play()
+        end
+    end)
+    stompEffects.DestroyLater(folder, 7.5)
+end
+
+function stompEffects.Play(character, targetPosition, targetCharacter)
+    if not stompEffects.IsEnabled() or not character then return end
+    if os.clock() - stompEffects.LastEffectAt < 6 then return end
+
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+    raycastParams.FilterDescendantsInstances = targetCharacter
+        and {character, targetCharacter}
+        or {character}
+    raycastParams.IgnoreWater = true
+    local rayOrigin = (targetPosition or root.Position) + Vector3.new(0, 4, 0)
+    local hit = Workspace:Raycast(rayOrigin, Vector3.new(0, -16, 0), raycastParams)
+    if not hit then return end
+
+    stompEffects.LastEffectAt = os.clock()
+    -- True Despair remains available in the source for a future release, but
+    -- Overseer stomps currently use Yggdrasil exclusively.
+    stompEffects.PlayYggdrasil(hit.Position)
+end
+
+function stompEffects.Trigger(character, generation, delaySeconds, targetPosition, targetCharacter)
+    local triggerGeneration = generation or stompEffects.Generation
+    task.delay(delaySeconds or 0, function()
+        if triggerGeneration == stompEffects.Generation and stompEffects.IsEnabled() then
+            stompEffects.Play(character, targetPosition, targetCharacter)
+        end
+    end)
+end
+
+function stompEffects.IsStompAnimation(track)
+    local animation = track and track.Animation
+    if not animation then return false end
+
+    local animationId = string.match(animation.AnimationId or "", "%d+")
+    if STOMP_ANIMATION_IDS[animationId] then return true end
+
+    local animationName = string.lower(animation.Name or "")
+    return string.find(animationName, "stomp", 1, true) ~= nil
+end
+
+function stompEffects.CancelPending()
+    local pending = stompEffects.PendingStomp
+    stompEffects.PendingStomp = nil
+    if not pending then return end
+    for _, connection in ipairs(pending.Connections or {}) do
+        pcall(function()
+            connection:Disconnect()
+        end)
+    end
+end
+
+function stompEffects.FindKnockedTarget(character)
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+
+    local bestTarget
+    local bestDistance = 24
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player.Character and player.Character ~= character then
+            local targetCharacter = player.Character
+            local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+            local targetHumanoid = targetCharacter:FindFirstChildOfClass("Humanoid")
+            if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
+                local distance = (targetRoot.Position - root.Position).Magnitude
+                if distance < bestDistance then
+                    bestDistance = distance
+                    bestTarget = {
+                        Character = targetCharacter,
+                        Humanoid = targetHumanoid,
+                        Root = targetRoot,
+                    }
+                end
+            end
+        end
+    end
+    return bestTarget
+end
+
+function stompEffects.FinishPending(pending)
+    if stompEffects.PendingStomp ~= pending
+        or not pending.Confirmed
+        or pending.Generation ~= stompEffects.Generation then
+        return
+    end
+
+    local targetPosition = pending.LastTargetPosition
+    if pending.TargetRoot and pending.TargetRoot.Parent then
+        targetPosition = pending.TargetRoot.Position
+    end
+    stompEffects.CancelPending()
+    stompEffects.Trigger(
+        pending.Character,
+        pending.Generation,
+        0.06,
+        targetPosition,
+        pending.TargetCharacter
+    )
+end
+
+function stompEffects.Arm(character, generation, track)
+    if generation ~= stompEffects.Generation or not stompEffects.IsEnabled() then return end
+    local target = stompEffects.FindKnockedTarget(character)
+    if not target then
+        stompEffects.CancelPending()
+        return
+    end
+
+    local existing = stompEffects.PendingStomp
+    if existing and existing.TargetHumanoid == target.Humanoid then
+        if existing.Track or not track then
+            return
+        end
+    end
+
+    stompEffects.CancelPending()
+    local pending = {
+        Character = character,
+        Generation = generation,
+        TargetCharacter = target.Character,
+        TargetHumanoid = target.Humanoid,
+        TargetRoot = target.Root,
+        LastTargetPosition = target.Root.Position,
+        Track = track,
+        Confirmed = false,
+        AnimationFinished = false,
+        Connections = {},
+    }
+    stompEffects.PendingStomp = pending
+
+    function stompEffects.ConfirmPendingDeath(currentPending)
+        if stompEffects.PendingStomp ~= currentPending then return end
+        currentPending.Confirmed = true
+        if currentPending.Track then
+            if currentPending.AnimationFinished or not currentPending.Track.IsPlaying then
+                stompEffects.FinishPending(currentPending)
+            end
+        else
+            task.delay(0.4, function()
+                if stompEffects.PendingStomp == currentPending then
+                    currentPending.AnimationFinished = true
+                    stompEffects.FinishPending(currentPending)
+                end
+            end)
+        end
+    end
+
+    table.insert(pending.Connections, target.Humanoid.HealthChanged:Connect(function(health)
+        if stompEffects.PendingStomp ~= pending then return end
+        if pending.TargetRoot and pending.TargetRoot.Parent then
+            pending.LastTargetPosition = pending.TargetRoot.Position
+        end
+        if health <= 0 then
+            stompEffects.ConfirmPendingDeath(pending)
+        end
+    end))
+
+    table.insert(pending.Connections, target.Humanoid.Died:Connect(function()
+        stompEffects.ConfirmPendingDeath(pending)
+    end))
+
+    if track then
+        table.insert(pending.Connections, track.Stopped:Connect(function()
+            if stompEffects.PendingStomp ~= pending then return end
+            pending.AnimationFinished = true
+            if pending.Confirmed or pending.TargetHumanoid.Health <= 0 then
+                pending.Confirmed = true
+                stompEffects.FinishPending(pending)
+            end
+        end))
+    end
+
+    task.delay(3.5, function()
+        if stompEffects.PendingStomp == pending then
+            if pending.TargetHumanoid.Parent and pending.TargetHumanoid.Health <= 0 then
+                pending.Confirmed = true
+                stompEffects.FinishPending(pending)
+            else
+                stompEffects.CancelPending()
+            end
+        end
+    end)
+end
+
+function stompEffects.BindStateValue(value, character, generation)
+    local valueName = string.lower(value.Name or "")
+    if not STOMP_STATE_NAMES[valueName] then return end
+
+    local connection = value.Changed:Connect(function(newValue)
+        if newValue == true or newValue == "true" or newValue == 1 then
+            stompEffects.Arm(character, generation, nil)
+        end
+    end)
+    table.insert(stompEffects.Connections, connection)
+end
+
+function stompEffects.BindStompTool(tool, character, generation)
+    if not tool:IsA("Tool") then return end
+    if not string.find(string.lower(tool.Name), "stomp", 1, true) then return end
+
+    local connection = tool.Activated:Connect(function()
+        stompEffects.Arm(character, generation, nil)
+    end)
+    table.insert(stompEffects.Connections, connection)
+end
+
+function stompEffects.WatchVictimCharacter(victimCharacter, ownerCharacter, generation)
+    if not victimCharacter or victimCharacter == ownerCharacter then return end
+
+    task.spawn(function()
+        local victimHumanoid = victimCharacter:FindFirstChildOfClass("Humanoid")
+            or victimCharacter:WaitForChild("Humanoid", 8)
+        local victimRoot = victimCharacter:FindFirstChild("HumanoidRootPart")
+            or victimCharacter:WaitForChild("HumanoidRootPart", 8)
+        if generation ~= stompEffects.Generation
+            or not stompEffects.IsEnabled()
+            or not victimHumanoid
+            or not victimRoot then
+            return
+        end
+
+        local wasAlive = victimHumanoid.Health > 0
+        local fired = false
+        local function confirmNearbyOverseerDeath()
+            if fired
+                or not wasAlive
+                or generation ~= stompEffects.Generation
+                or victimHumanoid.Health > 0 then
+                return
+            end
+
+            local ownerRoot = ownerCharacter
+                and ownerCharacter:FindFirstChild("HumanoidRootPart")
+            if not ownerRoot or not victimRoot.Parent then return end
+            if (ownerRoot.Position - victimRoot.Position).Magnitude > 30 then return end
+
+            fired = true
+            local targetPosition = victimRoot.Position
+            task.delay(0.55, function()
+                if generation == stompEffects.Generation
+                    and stompEffects.IsEnabled()
+                    and ownerCharacter.Parent then
+                    stompEffects.Trigger(
+                        ownerCharacter,
+                        generation,
+                        0,
+                        targetPosition,
+                        victimCharacter
+                    )
+                end
+            end)
+        end
+
+        local healthConnection = victimHumanoid.HealthChanged:Connect(function(health)
+            if health > 0 then
+                wasAlive = true
+                fired = false
+                return
+            end
+            confirmNearbyOverseerDeath()
+        end)
+        local diedConnection = victimHumanoid.Died:Connect(confirmNearbyOverseerDeath)
+        table.insert(stompEffects.Connections, healthConnection)
+        table.insert(stompEffects.Connections, diedConnection)
+    end)
+end
+
+function stompEffects.WatchVictimPlayer(player, ownerCharacter, generation)
+    if not player or isOwner(player) then return end
+    if player.Character then
+        stompEffects.WatchVictimCharacter(player.Character, ownerCharacter, generation)
+    end
+    local connection = player.CharacterAdded:Connect(function(character)
+        stompEffects.WatchVictimCharacter(character, ownerCharacter, generation)
+    end)
+    table.insert(stompEffects.Connections, connection)
+end
+
+function stompEffects.WatchAllVictims(ownerCharacter, generation)
+    for _, player in ipairs(Players:GetPlayers()) do
+        stompEffects.WatchVictimPlayer(player, ownerCharacter, generation)
+    end
+end
+
+function stompEffects.Attach(character, sourcePlayer)
+    stompEffects.Generation += 1
+    local generation = stompEffects.Generation
+    stompEffects.ClearConnections()
+    if not stompEffects.IsEnabled()
+        or not character
+        or not sourcePlayer
+        or not isOwner(sourcePlayer) then
+        return
+    end
+
+    task.spawn(function()
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+            or character:WaitForChild("Humanoid", 10)
+        if generation ~= stompEffects.Generation
+            or not stompEffects.IsEnabled()
+            or not humanoid then
+            return
+        end
+
+        if sourcePlayer == localPlayer then
+            stompEffects.InputConnection = UserInputService.InputBegan:Connect(function(input)
+                if input.UserInputType ~= Enum.UserInputType.Keyboard
+                    or input.KeyCode ~= Enum.KeyCode.E
+                    or isPlayerTyping() then
+                    return
+                end
+                stompEffects.Arm(character, generation, nil)
+            end)
+        end
+
+        local animationConnection = humanoid.AnimationPlayed:Connect(function(track)
+            if stompEffects.IsStompAnimation(track) then
+                stompEffects.Arm(character, generation, track)
+            end
+        end)
+        table.insert(stompEffects.Connections, animationConnection)
+
+        for _, descendant in ipairs(character:GetDescendants()) do
+            if descendant:IsA("BoolValue")
+                or descendant:IsA("StringValue")
+                or descendant:IsA("IntValue")
+                or descendant:IsA("NumberValue") then
+                stompEffects.BindStateValue(descendant, character, generation)
+            end
+        end
+
+        for _, child in ipairs(character:GetChildren()) do
+            stompEffects.BindStompTool(child, character, generation)
+        end
+
+        local descendantConnection = character.DescendantAdded:Connect(function(descendant)
+            if descendant:IsA("BoolValue")
+                or descendant:IsA("StringValue")
+                or descendant:IsA("IntValue")
+                or descendant:IsA("NumberValue") then
+                stompEffects.BindStateValue(descendant, character, generation)
+            end
+            stompEffects.BindStompTool(descendant, character, generation)
+        end)
+        table.insert(stompEffects.Connections, descendantConnection)
+
+        for _, attributeName in ipairs({
+            "Stomp",
+            "Stomping",
+            "StompActive",
+            "StompStarted",
+        }) do
+            local attributeConnection = character:GetAttributeChangedSignal(attributeName):Connect(function()
+                local value = character:GetAttribute(attributeName)
+                if value == true or value == "true" or value == 1 then
+                    stompEffects.Arm(character, generation, nil)
+                end
+            end)
+            table.insert(stompEffects.Connections, attributeConnection)
+        end
+
+        stompEffects.WatchAllVictims(character, generation)
+    end)
+end
+
+function stompEffects.FindOverseer()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isOwner(player) then
+            return player
+        end
+    end
+    return nil
+end
+
+function stompEffects.BindOverseer(player)
+    if stompEffects.CharacterConnection then
+        stompEffects.CharacterConnection:Disconnect()
+        stompEffects.CharacterConnection = nil
+    end
+    stompEffects.SourcePlayer = player
+    stompEffects.ClearConnections()
+    if not player or not stompEffects.IsEnabled() then return end
+
+    stompEffects.CharacterConnection = player.CharacterAdded:Connect(function(character)
+        stompEffects.Attach(character, player)
+    end)
+    if player.Character then
+        stompEffects.Attach(player.Character, player)
+    end
+end
+
+function stompEffects.RefreshOverseer()
+    stompEffects.BindOverseer(stompEffects.FindOverseer())
+end
+
+stompEffects.PlayerAddedConnection = Players.PlayerAdded:Connect(function(player)
+    if isOwner(player) then
+        stompEffects.BindOverseer(player)
+    elseif stompEffects.SourcePlayer
+        and stompEffects.SourcePlayer.Character
+        and stompEffects.IsEnabled() then
+        stompEffects.WatchVictimPlayer(
+            player,
+            stompEffects.SourcePlayer.Character,
+            stompEffects.Generation
+        )
+    end
+end)
+stompEffects.PlayerRemovingConnection = Players.PlayerRemoving:Connect(function(player)
+    if player == stompEffects.SourcePlayer then
+        stompEffects.BindOverseer(nil)
+    end
+end)
+stompEffects.RefreshOverseer()
+
 local function createSectionHeader(parent, text, yPos, color)
+    color = color or theme.AccentSecondary
     local holder = Instance.new("Frame", parent)
     holder.BackgroundTransparency = 1
     holder.Position = UDim2.new(0, 0, 0, yPos)
@@ -1582,30 +2896,45 @@ local function createSectionHeader(parent, text, yPos, color)
     label.Size = UDim2.new(0, 170, 1, 0)
     label.Font = Enum.Font.GothamBold
     label.Text = text
-    label.TextColor3 = color or theme.AccentSecondary
-    label.TextSize = 11
+    label.TextColor3 = color
+    label.TextSize = 12
     label.TextXAlignment = Enum.TextXAlignment.Left
 
     local line = Instance.new("Frame", holder)
-    line.BackgroundColor3 = color or theme.AccentSecondary
+    line.BackgroundColor3 = color
     line.BackgroundTransparency = 0.55
     line.BorderSizePixel = 0
     line.Position = UDim2.new(0, 176, 0.5, 0)
     line.Size = UDim2.new(1, -176, 0, 1)
+    local dot = Instance.new("Frame", holder)
+    dot.BackgroundColor3 = color
+    dot.BorderSizePixel = 0
+    dot.Position = UDim2.new(0, 165, 0.5, -3)
+    dot.Size = UDim2.new(0, 6, 0, 6)
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
     return holder
 end
 
-local function createKeybindControl(name, desc, yPos, initialKey, callback, parent, validateKey)
+local function createKeybindControl(name, desc, yPos, initialKey, callback, parent, validateKey, accentOverride)
+    local keyAccent = accentOverride or (yPos % 2 == 0 and theme.AccentPrimary or theme.AccentPink)
     local f = Instance.new("Frame", parent or staffPage)
     f.BackgroundColor3 = theme.BackgroundSecondary
     f.ClipsDescendants = true
     f.Position = UDim2.new(0, 0, 0, yPos)
     f.Size = UDim2.new(1, 0, 0, 55)
     Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    addGradient(f, theme.BackgroundSecondary, theme.BackgroundTertiary, 0)
     local s = Instance.new("UIStroke", f)
-    s.Color = theme.AccentSecondary
+    s.Color = keyAccent
     s.Thickness = 2
     s.Transparency = initialKey and 0.2 or 0.8
+    local accentBar = Instance.new("Frame", f)
+    accentBar.BackgroundColor3 = keyAccent
+    accentBar.BackgroundTransparency = initialKey and 0 or 0.55
+    accentBar.BorderSizePixel = 0
+    accentBar.Position = UDim2.new(0, 0, 0, 9)
+    accentBar.Size = UDim2.new(0, 3, 1, -18)
+    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(1, 0)
 
     local tl = Instance.new("TextLabel", f)
     tl.BackgroundTransparency = 1
@@ -1630,7 +2959,7 @@ local function createKeybindControl(name, desc, yPos, initialKey, callback, pare
     dl.TextXAlignment = Enum.TextXAlignment.Left
 
     local keyButton = Instance.new("TextButton", f)
-    keyButton.BackgroundColor3 = initialKey and theme.AccentPrimary or theme.BackgroundTertiary
+    keyButton.BackgroundColor3 = initialKey and keyAccent or Color3.fromRGB(70, 59, 96)
     keyButton.Position = UDim2.new(1, -96, 0.5, -15)
     keyButton.Size = UDim2.new(0, 82, 0, 30)
     keyButton.Font = Enum.Font.GothamBold
@@ -1866,7 +3195,11 @@ local function aimIsKnocked(player)
 end
 
 local function aimTargetUsable(player, mode)
-    if not player or player == localPlayer or not player.Parent or not player.Character then
+    if not player
+        or player == localPlayer
+        or isProtectedTarget(player)
+        or not player.Parent
+        or not player.Character then
         return false
     end
     -- Target Aim is an explicit lock and must remain locked through KO.
@@ -2370,8 +3703,8 @@ function autoKill.SetSelected(player, selected)
         notify(
             "AUTO KILL",
             isProtectedTarget(player)
-                and "The server owner cannot be selected as an Auto Kill target."
-                or "Auto Kill is restricted for 01 staff and the server owner.",
+                and "The Overseer cannot be selected as an Auto Kill target."
+                or "Auto Kill cannot be used by the Overseer.",
             4,
             "warning"
         )
@@ -2385,7 +3718,6 @@ function autoKill.SetSelected(player, selected)
         autoKill.SelectedUserIds[userId] = nil
         autoKill.SelectedTargets[player] = nil
     end
-    saveAutoKillTargetSelection()
 end
 
 function autoKill.RefreshTargetOrder()
@@ -2427,7 +3759,7 @@ function autoKill.SetActiveTarget(player)
     if player then
         autoKill.SetStatus("Selected: " .. getDisplayName(player), theme.Success)
     else
-        autoKill.SetStatus("Select a player from the list", theme.Warning)
+        autoKill.SetStatus("Enable list // Select a player from the list", theme.Warning)
     end
     return true
 end
@@ -3092,15 +4424,8 @@ end)
 -- xx INFORMATION
 -- Add any extra important notes or announcements here.
 local INFO_LINES = {
-    "• VERSION: STAFF ALERT PREMIUM  •  polished multi-tool build",
-    "• STAFF ALERTS: monitoring, notifications, ESP, staff checks, and Auto Kick",
-    "• AIM: Target Aim, Camera Assistance, Silent Aim, Triggerbot, hit-part pools, and FOV",
-    "• AUTO KILL: multi-target selection, prediction, target cycling, and rejoin recovery",
-    "• TARGET / EXTRA: spectate, Chat HUD, Auto Armor, Fake Auto Armor, and one-press armor",
-    "• FLING: multi-fling controls with underground mode",
-    "• SETTINGS: every submenu has opt-in persistence; feature enables stay session-only",
-    "• FOV RULE: Camera Assistance and Silent Aim require the target inside their FOV.",
-    "• Target Aim is the explicit lock mode and intentionally ignores FOV.",
+    "• Staff alert is up to date",
+    "• Config: every submenu has save settings",
     "",
     "• Staff Group = official staff with permissions",
     "• Undercover = staff with permissions who are not currently in the official group",
@@ -3111,15 +4436,9 @@ local INFO_LINES = {
 -- xx UPDATES
 -- New items (+) should go at the TOP of this list.
 local UPDATE_LINES = {
-    "+ Added premium badge and polished top-bar/sidebar presentation.",
-    "+ Added dedicated Camera Assistance and Silent Aim FOV enforcement.",
-    "+ Added Aim FOV ring using the configured Camera/Silent FOV.",
+    "+ Added dedicated Camera Assistance and Silent Aim.",
     "+ Added Auto Kill prediction controls with default 0 and opt-in persistence.",
-    "+ Added Auto Kill target handoff when a selected player leaves.",
-    "+ Added UserId-based target restoration when a selected player rejoins.",
-    "+ Added continuous recovery while a replacement character is loading.",
     "+ Added per-submenu Save Settings controls.",
-    "+ Added readable Aim keybind controls and white Auto Kill player names.",
     "+ Added exclusive multi-fling and underground mode -> Fling",
     "+ Added one-press Auto Armor and Fake Auto Armor -> Target / Extra",
 }
@@ -3127,12 +4446,12 @@ local UPDATE_LINES = {
 -- xx EXPERIMENTAL FUNCTIONS
 -- Describe experimental / beta features here.
 local EXPERIMENTAL_LINES = {
-    "BETA  •  Auto Kill target cycling across leave, respawn, and KO states.",
-    "BETA  •  Camera Assistance and Silent Aim use independent FOV gates.",
+    "BETA  •  Auto Kill target.",
+    "BETA  •  Camera Assistance and Silent Aim.",
+    "BETA  •  Target aim and triggerbot.",
     "BETA  •  Multi-part hit selection randomizes the selected body-part pool.",
-    "BETA  •  Resolver switches remain manual and are never restored from saves.",
+    "BETA  •  Added anti-resolvers.",
     "BETA  •  Fake Auto Armor waits for a real character respawn before buying.",
-    "BETA  •  Persistent target lists use UserIds so Player instances can change.",
     "! Experimental features can behave differently across game updates.",
     "! If a game changes its remotes, character states, or UI, recheck results.",
 }
@@ -3291,6 +4610,11 @@ createToggle("Save Settings", "Save Target / Extra and Auto Armor settings", 92,
                 config.AutoArmorNotifications,
                 "TARGET / EXTRA"
             )
+            saveSettingWithNotice(
+                "AutoArmorUseHighMedium",
+                config.AutoArmorUseHighMedium,
+                "TARGET / EXTRA"
+            )
             if autoArmorKey then
                 saveAutoArmorKey(autoArmorKey)
                 saveSettingWithNotice("AutoArmorKey", autoArmorKey.Name, "TARGET / EXTRA")
@@ -3360,7 +4684,7 @@ end, targetPage)
 
 -- Auto Armor
 -- The original repeating toggle remains available. The separate keybind below
--- purchases Medium Armor once per key press.
+-- purchases the selected armor once per key press.
 local autoArmorLoopId = 0
 local function notifyAutoArmorToggle(label, enabled)
     if config.AutoArmorNotifications then
@@ -3373,6 +4697,41 @@ local function notifyAutoArmorToggle(label, enabled)
     end
 end
 
+local function clickArmorPad(armorName, showPurchaseNotification)
+    local clicked = false
+    for _, item in ipairs(Workspace:GetDescendants()) do
+        if item.Name == armorName then
+            local detector = item:FindFirstChildWhichIsA("ClickDetector", true)
+            if detector and type(fireclickdetector) == "function" then
+                local ok = pcall(function() fireclickdetector(detector, 1) end)
+                clicked = ok
+            end
+            break
+        end
+    end
+
+    if showPurchaseNotification and config.AutoArmorNotifications then
+        notify(
+            "AUTO ARMOR",
+            clicked and (armorName .. " purchased once") or (armorName .. " pad was not found"),
+            3,
+            clicked and "success" or "warning"
+        )
+    end
+    return clicked
+end
+
+local function buyHighMediumArmorOnce(showPurchaseNotification)
+    return clickArmorPad("[High-Medium Armor]", showPurchaseNotification)
+end
+
+local function buySelectedArmorOnce(showPurchaseNotification)
+    if config.AutoArmorUseHighMedium then
+        return buyHighMediumArmorOnce(showPurchaseNotification)
+    end
+    return clickArmorPad("[Medium Armor]", showPurchaseNotification)
+end
+
 local function setAutoArmorEnabled(enabled)
     config.AutoArmorEnabled = enabled
     autoArmorLoopId = autoArmorLoopId + 1
@@ -3383,36 +4742,33 @@ local function setAutoArmorEnabled(enabled)
 
     task.spawn(function()
         while config.AutoArmorEnabled and autoArmorLoopId == loopId do
-            local buyPads
-            for _, v in ipairs(Workspace:GetDescendants()) do
-                if v.Name == "[Medium Armor]" then
-                    buyPads = v.Parent
-                    break
-                end
-            end
-
-            if buyPads then
-                pcall(function()
-                    local armorPad = buyPads:FindFirstChild("[Medium Armor]")
-                    local detector = armorPad and armorPad:FindFirstChild("ClickDetector")
-                    if detector and type(fireclickdetector) == "function" then
-                        fireclickdetector(detector, 1)
-                    end
-                end)
-            end
-
+            buySelectedArmorOnce(false)
             task.wait(1)
         end
     end)
 end
 
 createSectionHeader(targetPage, "AUTO ARMOR", 305, theme.Success)
-createToggle("Auto Armor", "Automatically activates the Medium Armor pad", 337, config.AutoArmorEnabled, function(v)
+createToggle("Auto Armor", "Automatically get Medium Armor", 337, config.AutoArmorEnabled, function(v)
     setAutoArmorEnabled(v)
 end, targetPage)
 
+createToggle(
+    "Use High-Medium Armor",
+    "Use High-Medium instead of Medium Armor for normal Auto Armor",
+    397,
+    config.AutoArmorUseHighMedium,
+    function(value)
+        config.AutoArmorUseHighMedium = value
+        if config.TargetSaveSettings then
+            saveSettingWithNotice("AutoArmorUseHighMedium", value, "AUTO ARMOR")
+        end
+    end,
+    targetPage
+)
+
 -- Auto Armor keybind
--- One press buys Medium Armor once. The binding is saved when the executor
+-- One press buys the selected armor once. The binding is saved when the executor
 -- exposes file APIs, with getgenv as a session fallback.
 local AUTO_ARMOR_KEY_FILE = "VF_StaffAlert_AutoArmorKey.txt"
 local autoArmorIgnoreUntil = 0
@@ -3469,27 +4825,6 @@ local function saveAutoArmorKey(key)
     end
 end
 
-local function buyMediumArmorOnce()
-    local clicked = false
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        if v.Name == "[Medium Armor]" then
-            local armorPad = v
-            local detector = armorPad:FindFirstChild("ClickDetector")
-            if detector and type(fireclickdetector) == "function" then
-                local ok = pcall(function() fireclickdetector(detector, 1) end)
-                clicked = ok
-            end
-            break
-        end
-    end
-
-    if clicked and config.AutoArmorNotifications then
-        notify("AUTO ARMOR", "Medium Armor purchased once", 3, "success")
-    elseif not clicked and config.AutoArmorNotifications then
-        notify("AUTO ARMOR", "Medium Armor pad was not found", 3, "warning")
-    end
-end
-
 state.FakeArmorCharacter = localPlayer.Character
 state.FakeArmorRespawnId = 0
 
@@ -3517,7 +4852,7 @@ function state.HandleFakeArmorRespawn(character)
                 if config.FakeAutoArmorEnabled
                     and respawnId == state.FakeArmorRespawnId
                     and localPlayer.Character == character then
-                    buyMediumArmorOnce()
+                    buySelectedArmorOnce(true)
                 end
                 return
             end
@@ -3533,9 +4868,9 @@ localPlayer.CharacterAdded:Connect(function(character)
 end)
 
 createToggle(
-    "Fake Auto Armor",
-    "Buy Medium Armor once after a real respawn",
-    397,
+    "Fake Auto Armor gamepass",
+    "Get Medium Armor upon respawning/resetting",
+    457,
     config.FakeAutoArmorEnabled,
     function(value)
         config.FakeAutoArmorEnabled = value
@@ -3548,7 +4883,7 @@ createToggle(
 createToggle(
     "Auto Armor Notifications",
     "Show or hide notifications from every Auto Armor purchase function",
-    457,
+    517,
     config.AutoArmorNotifications,
     function(value)
         config.AutoArmorNotifications = value
@@ -3631,6 +4966,7 @@ do
     profileCard.Position = UDim2.new(0, 0, 0, 38)
     profileCard.Size = UDim2.new(1, 0, 0, 215)
     Instance.new("UICorner", profileCard).CornerRadius = UDim.new(0, 14)
+    addGradient(profileCard, Color3.fromRGB(37, 28, 66), Color3.fromRGB(24, 43, 67), 25)
     local profileCardStroke = Instance.new("UIStroke", profileCard)
     profileCardStroke.Color = Color3.fromRGB(110, 235, 255)
     profileCardStroke.Thickness = 1
@@ -3688,7 +5024,7 @@ do
     rankLabel.Size = UDim2.new(0, 140, 0, 28)
     rankLabel.Font = Enum.Font.GothamBold
     local is01StaffUser = is01Staff(localPlayer)
-    rankLabel.Text = is01StaffUser and "ADMIN  /  01 STAFF" or (ownerProfile and "OWNER" or "PREMIUM")
+    rankLabel.Text = is01StaffUser and "ADMIN  /  01 STAFF" or (ownerProfile and "OVERSEER" or "PREMIUM")
     rankLabel.TextColor3 = is01StaffUser
         and theme.OneStaff
         or (ownerProfile and theme.Owner or Color3.fromRGB(255, 210, 65))
@@ -3738,15 +5074,55 @@ do
             notify("MENU KEY", key and ("Bound to " .. key.Name) or "Keybind cleared", 3, key and "success" or "warning")
         end,
         profilePage,
-        menuKeyConflict
+        menuKeyConflict,
+        theme.OneStaff
     )
-    profilePage.CanvasSize = UDim2.new(0, 0, 0, 335)
+
+    createSectionHeader(profilePage, "STAFF DISPLAY", 335, theme.AccentSecondary)
+    createToggle(
+        "01 STAFF TAGS",
+        "Show or hide staff tags",
+        367,
+        config.OneStaffTagsEnabled,
+        function(value)
+            setOneStaffTagsEnabled(value)
+        end,
+        profilePage
+    )
+    createToggle(
+        "01 STAFF ESP",
+        "Show or hide highlights through walls",
+        427,
+        config.OneStaffESPEnabled,
+        function(value)
+            setOneStaffESPEnabled(value)
+        end,
+        profilePage
+    )
+    createSectionHeader(profilePage, "VISUAL EFFECTS", 492, theme.Owner)
+    createToggle(
+        "STAFF EFFECTS",
+        "Show or hide the stomp effects",
+        524,
+        config.OverseerStompEffectsEnabled,
+        function(value)
+            config.OverseerStompEffectsEnabled = value
+            if value then
+                stompEffects.RefreshOverseer()
+            else
+                stompEffects.BindOverseer(nil)
+            end
+        end,
+        profilePage,
+        theme.Owner
+    )
+    profilePage.CanvasSize = UDim2.new(0, 0, 0, 595)
 end
 
 createKeybindControl(
     "Auto Armor Key",
-    "Press once to buy armor | Backspace/Delete clears",
-    517,
+    "Press once to buy the selected armor",
+    577,
     autoArmorKey,
     function(key)
         autoArmorKey = key
@@ -3761,12 +5137,12 @@ createKeybindControl(
     autoArmorKeyConflict
 )
 
-targetPage.CanvasSize = UDim2.new(0, 0, 0, 595)
+targetPage.CanvasSize = UDim2.new(0, 0, 0, 655)
 
 UserInputService.InputBegan:Connect(function(input, gpe)
     if gpe or isPlayerTyping() or tick() < autoArmorIgnoreUntil then return end
     if autoArmorKey and input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode == autoArmorKey then
-        buyMediumArmorOnce()
+        buySelectedArmorOnce(true)
     end
 end)
 
@@ -4197,7 +5573,7 @@ end, 100)
 
 local targetPanel = createAimPanel(
     "TARGET AIM",
-    "C selects target  •  Z clears  •  no FOV restriction",
+    "select target  •  shoots target no matter what",
     0, 80, 430
 )
 createAimCheck(targetPanel, "Enabled", 12, 58, aimConfig.TargetAimEnabled, function(value)
@@ -4228,7 +5604,7 @@ end)
 
 local cameraPanel = createAimPanel(
     "CAM ASSISTANCE",
-    "Hold RMB  •  cursor FOV required  •  one hit part",
+    "Hold RMB to use",
     AIM_RIGHT_X, 80, 430
 )
 createAimCheck(cameraPanel, "Enabled", 12, 58, aimConfig.CameraEnabled, function(value)
@@ -4268,7 +5644,7 @@ createAimPartPicker(cameraPanel, "Hit Part", aimConfig.CameraParts, 12, 222, fal
 
 local silentPanel = createAimPanel(
     "SILENT AIM",
-    "Original Loomi behavior  •  cursor FOV required",
+    "Adjustable silent aim  •  with fov",
     0, 522, 430
 )
 createAimCheck(silentPanel, "Enabled", 12, 58, aimConfig.SilentEnabled, function(value)
@@ -4303,26 +5679,26 @@ end)
 
 local triggerPanel = createAimPanel(
     "TRIGGERBOT",
-    "V arms it, but it only fires at the C-selected target",
+    "Keybind enables it, but it only fires at the selected target",
     AIM_RIGHT_X, 522, 270
 )
 createAimCheck(triggerPanel, "Enabled", 12, 58, aimConfig.TriggerEnabled, function(value)
     aimConfig.TriggerEnabled = value
     if not value then aimTriggerActive = false end
 end)
-createAimInfo(triggerPanel, "KO check: always on  •  Loomi BodyEffects.K.O", 12, 88, 280)
+createAimInfo(triggerPanel, "KO check: always on", 12, 88, 280)
 createAimKey(triggerPanel, "Trigger Key", 12, 128, aimConfig.TriggerKey, function(key)
     aimConfig.TriggerKey = key
     saveAimValue("AimTriggerKey", key and key.Name or "")
 end, "Trigger")
-createAimInfo(triggerPanel, "Requires a target selected with C.\nPress Z to cancel the target and stop firing.", 12, 190, 280)
+createAimInfo(triggerPanel, "Requires a target selected\nPress keybind to cancel the target and stop firing.", 12, 190, 280)
 
 aimPage.CanvasSize = UDim2.new(0, 0, 0, 980)
 
 -- ======================================================== --
 --  AUTO KILL PAGE
 -- ======================================================== --
-do
+local function buildAutoKillPage()
     local autoKillPage = autoKill.UI.Page
     local autoKillEnableControl
     local autoKillTitle = Instance.new("TextLabel", autoKillPage)
@@ -4346,14 +5722,14 @@ do
     autoKill.UI.StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 
     createSectionHeader(autoKillPage, "AUTO KILL CONTROLS", 50, theme.AccentSecondary)
-    autoKillEnableControl = createToggle("Enable", "Follow, target, and fire at the selected player", 84,
+    autoKillEnableControl = createToggle("Enable", "Follow, target, and fire at the selected player(s)", 84,
         autoKill.Config.Enabled, function(value)
             if value and isCombatRestricted(localPlayer) then
                 autoKill.Config.Enabled = false
                 if autoKillEnableControl then
                     autoKillEnableControl.SetValue(false, false)
                 end
-                notify("AUTO KILL", "Auto Kill is restricted for 01 staff and the server owner.", 4, "warning")
+                notify("AUTO KILL", "Auto Kill cannot be used by the Overseer.", 4, "warning")
                 return
             end
             autoKill.Config.Enabled = value
@@ -4390,14 +5766,9 @@ do
             else
                 notify("AUTO KILL", "Disabled", 3, "warning")
                 autoKill.ResetLocalState(true)
-                -- Preserve saved target ids when the submenu's Save Settings
-                -- option is enabled; otherwise disable is a clean reset.
-                if autoKill.Config.SaveSettings then
-                    autoKill.RefreshTargetOrder()
-                else
-                    table.clear(autoKill.SelectedTargets)
-                    table.clear(autoKill.SelectedUserIds)
-                end
+                -- Keep selected user ids in memory for rejoin handling during
+                -- this execution; they are never written to the settings file.
+                autoKill.RefreshTargetOrder()
                 autoKill.Target = nil
                 autoKill.TargetOrder = {}
                 autoKill.TargetIndex = 0
@@ -4409,12 +5780,11 @@ do
         end, autoKillPage)
     autoKill.UI.EnableControl = autoKillEnableControl
 
-    createToggle("Save Settings", "Save selected targets and Auto Kill predictions", 144,
+    createToggle("Save Settings", "Save Auto Kill predictions", 144,
         autoKill.Config.SaveSettings, function(value)
             autoKill.Config.SaveSettings = value
             saveSettingWithNotice("AutoKillSaveSettings", value, "AUTO KILL")
             if value then
-                saveAutoKillTargetSelection()
                 saveSettingWithNotice(
                     "AutoKillPrediction",
                     autoKill.Config.Prediction,
@@ -4566,13 +5936,6 @@ do
     updatePersistentAutoKillButton()
 
     autoKillRefreshPlayerList = function()
-        for _, child in ipairs(autoKillPlayerScroll:GetChildren()) do
-            if child:IsA("TextButton") then child:Destroy() end
-        end
-        for _, child in ipairs(persistentPlayerScroll:GetChildren()) do
-            if child:IsA("TextButton") then child:Destroy() end
-        end
-
         local players = {}
         local mainCount, undercoverCount, possibleCount = 0, 0, 0
         for _, player in ipairs(Players:GetPlayers()) do
@@ -4587,11 +5950,38 @@ do
             end
         end
         table.sort(players, function(a, b)
-            return a.DisplayName:lower() < b.DisplayName:lower()
+            local aDisplay, bDisplay = a.DisplayName:lower(), b.DisplayName:lower()
+            if aDisplay == bDisplay then return a.Name:lower() < b.Name:lower() end
+            return aDisplay < bDisplay
         end)
         autoKill.RefreshTargetOrder()
 
+        local signatureParts = {}
+        for _, player in ipairs(players) do
+            table.insert(signatureParts, table.concat({
+                tostring(player.UserId),
+                autoKill.IsSelected(player) and "1" or "0",
+                player == autoKill.Target and "1" or "0",
+            }, ":"))
+        end
+        local signature = table.concat(signatureParts, "|")
         autoKillEmptyLabel.Visible = #players == 0
+        persistentStaffCount.Text = "STAFF: " .. tostring(mainCount)
+        persistentServerCount.Text = "PLAYERS: " .. tostring(#players)
+        persistentUndercoverCount.Text = "UNDERCOVER: " .. tostring(undercoverCount)
+        updatePersistentAutoKillButton()
+        if signature == autoKillListSignature then return end
+        autoKillListSignature = signature
+
+        local mainScrollPosition = autoKillPlayerScroll.CanvasPosition
+        local persistentScrollPosition = persistentPlayerScroll.CanvasPosition
+        for _, child in ipairs(autoKillPlayerScroll:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+        for _, child in ipairs(persistentPlayerScroll:GetChildren()) do
+            if child:IsA("TextButton") then child:Destroy() end
+        end
+
         local function playerStatus(player)
             if player == autoKill.Target then return "Locked: firing" end
             if autoKill.IsSelected(player) then return "Selected target" end
@@ -4650,10 +6040,8 @@ do
         end
         autoKillPlayerScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(0, #players * 44))
         persistentPlayerScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(0, #players * 40))
-        persistentStaffCount.Text = "STAFF: " .. tostring(mainCount)
-        persistentServerCount.Text = "PLAYERS: " .. tostring(#players)
-        persistentUndercoverCount.Text = "UNDERCOVER: " .. tostring(undercoverCount)
-        updatePersistentAutoKillButton()
+        autoKillPlayerScroll.CanvasPosition = mainScrollPosition
+        persistentPlayerScroll.CanvasPosition = persistentScrollPosition
     end
 
     createToggle("Show Player List", "Show display names on the left side of the screen", 204,
@@ -4689,15 +6077,14 @@ do
             autoKill.Config.Resolver = value
         end)
 
-    createButton("Clear Auto Kill Target", "Stop following and clear the separate target", 382,
+    createButton("Clear Auto Kill Target", "Stop following and clear all targets", 382,
         function()
             table.clear(autoKill.SelectedTargets)
             table.clear(autoKill.SelectedUserIds)
-            saveAutoKillTargetSelection()
             autoKill.SetActiveTarget(nil)
             autoKill.SetStatus("Select a player from the list", theme.TextSecondary)
             autoKillRefreshPlayerList()
-        end, autoKillPage)
+        end, autoKillPage, theme.OneStaff)
 
     createToggle(
         "Silent Auto Kill",
@@ -4774,6 +6161,7 @@ do
     end)
     autoKillPage.CanvasSize = UDim2.new(0, 0, 0, 650)
 end
+buildAutoKillPage()
 
 -- Staff Settings
 local l1 = Instance.new("TextLabel", staffPage)
@@ -4793,7 +6181,13 @@ createToggle("Staff ESP", "Highlights staff members through walls", 62, config.S
         saveSettingWithNotice("StaffESPEnabled", v, "STAFF SETTINGS")
     end
     for _, f in ipairs({state.StaffESPFolder, state.UndercoverESPFolder, state.PossibleESPFolder}) do
-        for _, h in ipairs(f:GetChildren()) do if h:IsA("Highlight") then h.Enabled = v end end
+        for _, h in ipairs(f:GetChildren()) do
+            if h:IsA("Highlight") then
+                h.Enabled = v
+                    and (not h.Name:match("^O1HL_") and not h.Name:match("^OWNERHL_")
+                        or config.OneStaffESPEnabled)
+            end
+        end
     end
 end, staffPage)
 
@@ -4836,6 +6230,7 @@ createToggle("Save Settings", "Save Staff Alerts settings, including Auto Kick",
         saveSettingWithNotice("StaffSaveSettings", value, "STAFF SETTINGS")
         if value then
             saveSettingWithNotice("StaffESPEnabled", config.StaffESPEnabled, "STAFF SETTINGS")
+            saveSettingWithNotice("OneStaffESPEnabled", config.OneStaffESPEnabled, "STAFF SETTINGS")
             saveSettingWithNotice("NotificationsEnabled", config.NotificationsEnabled, "STAFF SETTINGS")
             saveSettingWithNotice("SoundsEnabled", config.SoundsEnabled, "STAFF SETTINGS")
             saveSettingWithNotice("AutoKickEnabled", config.AutoKickEnabled, "STAFF SETTINGS")
@@ -4845,51 +6240,45 @@ createToggle("Save Settings", "Save Staff Alerts settings, including Auto Kick",
 
 -- Manual / Check Active Staff
 -- The configured staff-check key always fires regardless of NotificationsEnabled.
--- Results are shown in priority order: Main > Undercover > Possible Staff.
+-- F1/check-key results intentionally include only VF main-group and undercover staff.
 local function showStaffNotification()
-    local oneStaffLines, mainLines, undLines, possLines = {}, {}, {}, {}
+    local mainLines, undLines = {}, {}
 
     for _, p in ipairs(Players:GetPlayers()) do
         local mains      = getMainMemberships(p)
-        local possible   = getPossibleMemberships(p)
         local inMain     = #mains > 0
-        local inPossible = #possible > 0
         local isU        = isUndercover(p, inMain)
         local is01       = is01Staff(p)
-        local ownerPlayer = isOwner(p)
-        local category   = getPlayerCategory(inMain, isU, inPossible, is01, ownerPlayer)
-        if not category then continue end
-
-        -- The staff check is intentionally compact: names only, so every active player fits.
         local line = p.DisplayName .. " (@" .. p.Name .. ")"
 
-        if     category == "owner"      then table.insert(oneStaffLines, "👑 OWNER • " .. line)
-        elseif category == "01staff"    then table.insert(oneStaffLines, "ADMIN • " .. line)
-        elseif category == "main"       then table.insert(mainLines, line)
-        elseif category == "undercover" then table.insert(undLines,  line)
-        else                                 table.insert(possLines, line)
+        -- Keep this manual check limited to the two requested VF staff paths.
+        if not is01 and inMain then
+            table.insert(mainLines, line)
+        elseif not is01 and isU then
+            table.insert(undLines, line)
         end
     end
 
     local allLines = {}
-    for _, l in ipairs(oneStaffLines) do table.insert(allLines, "01 STAFF • " .. l) end
     for _, l in ipairs(mainLines) do table.insert(allLines, l) end
     for _, l in ipairs(undLines)  do table.insert(allLines, l) end
-    for _, l in ipairs(possLines) do table.insert(allLines, l) end
 
     if #allLines > 0 then
-        local hasOneStaff = #oneStaffLines > 0
+        local hasMain = #mainLines > 0
+        local hasUndercover = #undLines > 0
+        local title = hasMain and (hasUndercover and "VF STAFF / UNDERCOVER IN SERVER" or "VF STAFF IN SERVER")
+            or "UNDERCOVER STAFF IN SERVER"
         notify(
-            hasOneStaff and "01 STAFF / VF STAFF IN SERVER" or "VF STAFF IN SERVER",
+            title,
             table.concat(allLines, "\n"),
             8,
             nil,
-            hasOneStaff and theme.OneStaff or theme.StaffPresent,
+            hasMain and theme.StaffPresent or theme.Warning,
             true,
             #allLines
         )
     else
-        notify("STAFF IN SERVER", "No staff or undercover players currently in the server.", 4, "success", nil, true)
+        notify("STAFF IN SERVER", "No VF main staff or undercover players currently in the server.", 4, "success", nil, true)
     end
 end
 
@@ -5015,14 +6404,21 @@ local function slAddRow(sf, idx, nameText, detailText, color)
     nameLbl.TextSize = 15
     nameLbl.TextXAlignment = Enum.TextXAlignment.Left
     nameLbl.TextTruncate   = Enum.TextTruncate.AtEnd
-    if color == theme.OneStaff then
+    if color == theme.OneStaff or color == theme.Owner then
         local flint = Instance.new("UIGradient", nameLbl)
-        flint.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(125, 15, 45)),
-            ColorSequenceKeypoint.new(0.42, Color3.fromRGB(235, 55, 90)),
-            ColorSequenceKeypoint.new(0.52, Color3.fromRGB(255, 225, 235)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(145, 18, 55)),
-        })
+        flint.Color = color == theme.Owner
+            and ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(190, 150, 24)),
+                ColorSequenceKeypoint.new(0.42, Color3.fromRGB(255, 226, 82)),
+                ColorSequenceKeypoint.new(0.52, Color3.fromRGB(255, 255, 225)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(205, 175, 35)),
+            })
+            or ColorSequence.new({
+                ColorSequenceKeypoint.new(0, Color3.fromRGB(125, 15, 45)),
+                ColorSequenceKeypoint.new(0.42, Color3.fromRGB(235, 55, 90)),
+                ColorSequenceKeypoint.new(0.52, Color3.fromRGB(255, 225, 235)),
+                ColorSequenceKeypoint.new(1, Color3.fromRGB(145, 18, 55)),
+            })
         task.spawn(function()
             while nameLbl.Parent do
                 flint.Offset = Vector2.new(-1, 0)
@@ -5092,13 +6488,15 @@ refreshStaffList = function()
         if category == "owner" then
             table.insert(oneStaffEntries, {
                 name = p.Name,
+                sortKey = p.DisplayName:lower() .. "\0" .. p.Name:lower(),
                 display = nameText,
-                detail = "👑 SERVER OWNER",
+                detail = "👑 OVERSEER",
                 color = theme.Owner,
             })
         elseif category == "01staff" then
             table.insert(oneStaffEntries, {
                 name = p.Name,
+                sortKey = p.DisplayName:lower() .. "\0" .. p.Name:lower(),
                 display = nameText,
                 detail = "ADMIN • 01 STAFF",
                 color = theme.OneStaff,
@@ -5112,7 +6510,12 @@ refreshStaffList = function()
                 for _, m in ipairs(possible) do table.insert(extras, getGroupName(m.id) .. ": " .. m.role) end
                 detail = detail .. "  |  " .. table.concat(extras, "  |  ")
             end
-            table.insert(mainEntries, { name = p.Name, display = nameText, detail = detail })
+            table.insert(mainEntries, {
+                name = p.Name,
+                sortKey = p.DisplayName:lower() .. "\0" .. p.Name:lower(),
+                display = nameText,
+                detail = detail,
+            })
         end
 
         if isU and not inMain then
@@ -5122,17 +6525,31 @@ refreshStaffList = function()
                 for _, m in ipairs(possible) do table.insert(extras, getGroupName(m.id) .. ": " .. m.role) end
                 detail = detail .. "  |  " .. table.concat(extras, "  |  ")
             end
-            table.insert(undEntries, { name = p.Name, display = nameText, detail = detail })
+            table.insert(undEntries, {
+                name = p.Name,
+                sortKey = p.DisplayName:lower() .. "\0" .. p.Name:lower(),
+                display = nameText,
+                detail = detail,
+            })
         end
 
         if inPossible then
             local parts = {}
             for _, m in ipairs(possible) do table.insert(parts, getGroupName(m.id) .. ": " .. m.role) end
-            table.insert(possEntries, { name = p.Name, display = nameText, detail = table.concat(parts, "  |  ") })
+            table.insert(possEntries, {
+                name = p.Name,
+                sortKey = p.DisplayName:lower() .. "\0" .. p.Name:lower(),
+                display = nameText,
+                detail = table.concat(parts, "  |  "),
+            })
         end
     end
 
-    local function sortAlpha(t) table.sort(t, function(a, b) return a.name:lower() < b.name:lower() end) end
+    local function sortAlpha(t)
+        table.sort(t, function(a, b)
+            return (a.sortKey or a.name:lower()) < (b.sortKey or b.name:lower())
+        end)
+    end
     sortAlpha(oneStaffEntries) sortAlpha(mainEntries) sortAlpha(undEntries) sortAlpha(possEntries)
 -- xx Subtitles staff list
     slPopulate(oneStaffEntries, slOneSF, slOneEmpty, theme.OneStaff, slOneHdr, "— 01 STAFF")
@@ -5155,6 +6572,7 @@ SelectedTargets = {}
 SelectedTargets.UserIds = {}
 SelectedTargets.UserIds[2309457259] = nil
 PlayerCheckboxes = {}
+local lastFlingListSignature
 FlingActive = false
 UndergroundFlingEnabled = false
 UNDERGROUND_DROP = 200
@@ -5166,7 +6584,7 @@ ft = Instance.new("TextLabel", flingPage)
 ft.BackgroundTransparency = 1
 ft.Size = UDim2.new(1, 0, 0, 30)
 ft.Font = Enum.Font.GothamBold
-ft.Text = "MULTI-TARGET FLING"
+ft.Text = "MULTI-TARGET FLING // MAKE SURE TO HIDE OR TURN ON UNDERGROUND BEFORE STARTING"
 ft.TextColor3 = theme.AccentSecondary
 ft.TextSize = 14
 ft.TextXAlignment = Enum.TextXAlignment.Left
@@ -5438,16 +6856,34 @@ function UpdateFlingStatus()
 end
 
 function RefreshFlingList()
+    local pList = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= localPlayer and not isProtectedTarget(player) then
+            table.insert(pList, player)
+        end
+    end
+    table.sort(pList, function(a, b)
+        local aDisplay, bDisplay = a.DisplayName:lower(), b.DisplayName:lower()
+        if aDisplay == bDisplay then return a.Name:lower() < b.Name:lower() end
+        return aDisplay < bDisplay
+    end)
+
+    local signatureParts = {}
+    for _, player in ipairs(pList) do
+        table.insert(signatureParts, tostring(player.UserId))
+    end
+    local signature = table.concat(signatureParts, "|")
+    if signature == lastFlingListSignature then return end
+    lastFlingListSignature = signature
+
+    local savedCanvasPosition = pScroll.CanvasPosition
     for _, c in pairs(pScroll:GetChildren()) do
         if c:IsA("Frame") then c:Destroy() end
     end
     PlayerCheckboxes = {}
-    local pList = Players:GetPlayers()
-    table.sort(pList, function(a, b) return a.Name:lower() < b.Name:lower() end)
     local yPos = 0
     for _, p in ipairs(pList) do
-        if p ~= localPlayer and not isProtectedTarget(p) then
-            local entry = Instance.new("Frame", pScroll)
+        local entry = Instance.new("Frame", pScroll)
             entry.BackgroundTransparency = 1
             entry.Size = UDim2.new(1, 0, 0, 25)
             entry.Position = UDim2.new(0, 0, 0, yPos)
@@ -5492,8 +6928,8 @@ function RefreshFlingList()
                     notify(
                         "FLING",
                         isProtectedTarget(p)
-                            and "The server owner cannot be selected as a Fling target."
-                            or "Fling is restricted for 01 staff and the server owner.",
+                            and "The Overseer cannot be selected as a Fling target."
+                            or "Fling cannot be used by the Overseer.",
                         4,
                         "warning"
                     )
@@ -5511,11 +6947,11 @@ function RefreshFlingList()
                 UpdateFlingStatus()
             end)
 
-            PlayerCheckboxes[p.Name] = { Entry = entry, Checkmark = cm }
-            yPos = yPos + 30
-        end
+        PlayerCheckboxes[p.Name] = { Entry = entry, Checkmark = cm }
+        yPos = yPos + 30
     end
     pScroll.CanvasSize = UDim2.new(0, 0, 0, yPos)
+    pScroll.CanvasPosition = savedCanvasPosition
 end
 
 function ToggleAll(sel)
@@ -5540,7 +6976,7 @@ end
 
 startFlingBtn.MouseButton1Click:Connect(function()
     if isCombatRestricted(localPlayer) then
-        notify("FLING", "Fling is restricted for 01 staff and the server owner.", 4, "warning")
+        notify("FLING", "Fling cannot be used by the Overseer.", 4, "warning")
         return
     end
     if FlingActive then return end
@@ -5617,8 +7053,10 @@ Players.PlayerAdded:Connect(function(player)
 end)
 Players.PlayerRemoving:Connect(function(p)
     SelectedTargets[p.Name] = nil
-    RefreshFlingList()
     UpdateFlingStatus()
+    -- Defer until Roblox has removed the Player from Players so the rebuilt
+    -- alphabetical list cannot briefly recreate a stale departing row.
+    task.defer(RefreshFlingList)
 end)
 
 RefreshFlingList()
@@ -5738,7 +7176,7 @@ function state.ShowPremiumIntro()
 
     for i = 1, 10 do
         local line = Instance.new("Frame", ambient)
-        line.BackgroundColor3 = Color3.fromRGB(130, 95, 255)
+        line.BackgroundColor3 = Color3.fromRGB(75, 220, 150)
         line.BackgroundTransparency = 0.95
         line.BorderSizePixel = 0
         line.Position = UDim2.new(i / 11, 0, 0, 0)
@@ -5778,7 +7216,7 @@ function state.ShowPremiumIntro()
     cardStroke.Thickness = 2
     cardStroke.Transparency = 1
     addGlow(card, theme.AccentPrimary, 0.72)
-    addGradient(card, Color3.fromRGB(8, 18, 45), Color3.fromRGB(22, 8, 52), 28)
+    addGradient(card, Color3.fromRGB(8, 18, 45), Color3.fromRGB(8, 45, 35), 28)
     tween(card, {Size = UDim2.new(0, 620, 0, 280)}, 0.7, Enum.EasingStyle.Back)
     tween(cardStroke, {Transparency = 0.18}, 0.7, Enum.EasingStyle.Quad)
 
@@ -5792,7 +7230,9 @@ function state.ShowPremiumIntro()
     for i = 1, 24 do
         local mote = Instance.new("Frame", particleField)
         local moteSize = (i % 4 == 0) and 3 or 2
-        mote.BackgroundColor3 = (i % 2 == 0) and Color3.fromRGB(0, 230, 255) or Color3.fromRGB(185, 120, 255)
+        mote.BackgroundColor3 = (i % 2 == 0)
+            and Color3.fromRGB(0, 230, 255)
+            or Color3.fromRGB(90, 245, 150)
         mote.BackgroundTransparency = math.random(35, 82) / 100
         mote.BorderSizePixel = 0
         mote.Position = UDim2.new(math.random(2, 98) / 100, 0, math.random(4, 96) / 100, 0)
@@ -5862,7 +7302,7 @@ function state.ShowPremiumIntro()
     end)
 
     local topAccent = Instance.new("Frame", card)
-    topAccent.BackgroundColor3 = theme.AccentSecondary
+    topAccent.BackgroundColor3 = Color3.fromRGB(80, 230, 160)
     topAccent.BorderSizePixel = 0
     topAccent.Position = UDim2.new(0, 24, 0, 18)
     topAccent.Size = UDim2.new(0, 0, 0, 2)
@@ -5873,7 +7313,7 @@ function state.ShowPremiumIntro()
 
     do
     local logo = Instance.new("Frame", card)
-    logo.BackgroundColor3 = Color3.fromRGB(18, 130, 255)
+    logo.BackgroundColor3 = Color3.fromRGB(12, 170, 205)
     logo.BackgroundTransparency = 0.08
     logo.Position = UDim2.new(0, 28, 0.5, -41)
     logo.Size = UDim2.new(0, 82, 0, 82)
@@ -5882,8 +7322,8 @@ function state.ShowPremiumIntro()
     local logoGradient = Instance.new("UIGradient", logo)
     logoGradient.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 220, 255)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(70, 105, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(175, 70, 255))
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(40, 150, 235)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(65, 235, 140))
     })
     logoGradient.Rotation = 135
     local logoStroke = Instance.new("UIStroke", logo)
@@ -5906,8 +7346,8 @@ function state.ShowPremiumIntro()
     logoTextGradient.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 255, 255)),
         ColorSequenceKeypoint.new(0.45, Color3.fromRGB(255, 255, 255)),
-        ColorSequenceKeypoint.new(0.7, Color3.fromRGB(180, 135, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(90, 215, 255))
+        ColorSequenceKeypoint.new(0.7, Color3.fromRGB(215, 255, 230)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(70, 235, 145))
     })
     logoTextGradient.Offset = Vector2.new(-1, 0)
 
@@ -5961,6 +7401,233 @@ function state.ShowPremiumIntro()
     end
 
     do
+    local lifeTree = Instance.new("Frame", splash)
+    lifeTree.Name = "LifeTreeAwakening"
+    lifeTree.AnchorPoint = Vector2.new(0.5, 0.5)
+    lifeTree.BackgroundTransparency = 1
+    lifeTree.Position = UDim2.new(0.5, 0, 0.5, 10)
+    lifeTree.Size = UDim2.new(0, 1300, 0, 940)
+    lifeTree.ZIndex = 3
+
+    local function addTreeSegment(x1, y1, x2, y2, thickness, color, delaySeconds)
+        local dx = x2 - x1
+        local dy = y2 - y1
+        local length = math.sqrt(dx * dx + dy * dy)
+        local limb = Instance.new("Frame", lifeTree)
+        limb.AnchorPoint = Vector2.new(0, 0.5)
+        limb.BackgroundColor3 = color
+        limb.BackgroundTransparency = 0.12
+        limb.BorderSizePixel = 0
+        limb.Position = UDim2.new(0, x1, 0, y1)
+        limb.Rotation = math.deg(math.atan2(dy, dx))
+        limb.Size = UDim2.new(0, 0, 0, thickness)
+        limb.ZIndex = 3
+        Instance.new("UICorner", limb).CornerRadius = UDim.new(1, 0)
+        local limbGradient = Instance.new("UIGradient", limb)
+        limbGradient.Color = ColorSequence.new(
+            Color3.fromRGB(215, 255, 225),
+            color
+        )
+        task.delay(delaySeconds, function()
+            if limb.Parent then
+                tween(
+                    limb,
+                    {Size = UDim2.new(0, length, 0, thickness)},
+                    0.9,
+                    Enum.EasingStyle.Quart
+                )
+            end
+        end)
+        return limb
+    end
+
+    -- The growth is built from explicit endpoints: roots at the bottom,
+    -- one tall, gently bending trunk, then layered forks and many fine twigs.
+    local trunkColor = Color3.fromRGB(75, 225, 135)
+    local branchColor = Color3.fromRGB(90, 245, 155)
+    local rootColor = Color3.fromRGB(45, 195, 115)
+    addTreeSegment(610, 830, 595, 700, 42, rootColor, 0.15)
+    addTreeSegment(595, 700, 610, 580, 35, trunkColor, 0.42)
+    addTreeSegment(610, 580, 590, 455, 27, trunkColor, 0.7)
+    addTreeSegment(590, 455, 620, 340, 21, branchColor, 0.98)
+    addTreeSegment(620, 340, 600, 235, 17, branchColor, 1.26)
+    addTreeSegment(600, 235, 620, 130, 13, Color3.fromRGB(110, 250, 165), 1.52)
+    addTreeSegment(620, 130, 590, 35, 9, Color3.fromRGB(125, 255, 180), 1.76)
+
+    -- Roots spread from the bottom of the trunk.
+    addTreeSegment(610, 815, 465, 875, 11, rootColor, 0.62)
+    addTreeSegment(465, 875, 300, 900, 6, rootColor, 0.86)
+    addTreeSegment(605, 815, 760, 875, 11, rootColor, 0.68)
+    addTreeSegment(760, 875, 930, 900, 6, rootColor, 0.92)
+    addTreeSegment(600, 805, 540, 920, 7, Color3.fromRGB(65, 215, 125), 0.98)
+    addTreeSegment(600, 805, 670, 920, 7, Color3.fromRGB(65, 215, 125), 1.06)
+    addTreeSegment(575, 820, 430, 845, 5, Color3.fromRGB(55, 205, 120), 1.12)
+    addTreeSegment(645, 820, 805, 840, 5, Color3.fromRGB(55, 205, 120), 1.18)
+    -- Broad buttress roots fill the lower silhouette before splitting into
+    -- the finer roots, keeping the base grounded beneath the intro card.
+    addTreeSegment(605, 790, 500, 815, 15, rootColor, 0.82)
+    addTreeSegment(500, 815, 365, 805, 9, rootColor, 1.0)
+    addTreeSegment(365, 805, 205, 830, 5, rootColor, 1.18)
+    addTreeSegment(615, 790, 720, 815, 15, rootColor, 0.88)
+    addTreeSegment(720, 815, 855, 805, 9, rootColor, 1.06)
+    addTreeSegment(855, 805, 1015, 830, 5, rootColor, 1.24)
+    addTreeSegment(580, 800, 465, 865, 8, Color3.fromRGB(60, 210, 122), 1.08)
+    addTreeSegment(465, 865, 335, 900, 4, Color3.fromRGB(60, 210, 122), 1.3)
+    addTreeSegment(640, 800, 755, 865, 8, Color3.fromRGB(60, 210, 122), 1.14)
+    addTreeSegment(755, 865, 885, 900, 4, Color3.fromRGB(60, 210, 122), 1.36)
+    addTreeSegment(555, 815, 405, 850, 5, Color3.fromRGB(50, 200, 118), 1.24)
+    addTreeSegment(665, 815, 815, 850, 5, Color3.fromRGB(50, 200, 118), 1.3)
+
+    -- Main limbs stay high on the trunk, leaving the lower middle open like
+    -- the broad silhouette of a carved tree-of-life canopy.
+    addTreeSegment(592, 505, 470, 420, 12, branchColor, 1.22)
+    addTreeSegment(470, 420, 355, 330, 9, branchColor, 1.42)
+    addTreeSegment(355, 330, 220, 345, 6, Color3.fromRGB(120, 255, 175), 1.62)
+    addTreeSegment(600, 465, 730, 390, 12, branchColor, 1.3)
+    addTreeSegment(730, 390, 850, 310, 9, branchColor, 1.5)
+    addTreeSegment(850, 310, 1010, 340, 6, Color3.fromRGB(120, 255, 175), 1.7)
+
+    addTreeSegment(615, 370, 500, 260, 10, branchColor, 1.46)
+    addTreeSegment(500, 260, 400, 165, 8, branchColor, 1.64)
+    addTreeSegment(400, 165, 270, 190, 5, Color3.fromRGB(125, 255, 180), 1.84)
+    addTreeSegment(615, 320, 740, 230, 10, branchColor, 1.54)
+    addTreeSegment(740, 230, 850, 140, 8, branchColor, 1.72)
+    addTreeSegment(850, 140, 1020, 185, 5, Color3.fromRGB(125, 255, 180), 1.92)
+
+    addTreeSegment(605, 250, 530, 150, 8, branchColor, 1.66)
+    addTreeSegment(530, 150, 455, 75, 6, branchColor, 1.84)
+    addTreeSegment(455, 75, 350, 60, 4, Color3.fromRGB(135, 255, 185), 2.0)
+    addTreeSegment(610, 220, 690, 125, 8, branchColor, 1.74)
+    addTreeSegment(690, 125, 770, 60, 6, branchColor, 1.92)
+    addTreeSegment(770, 60, 890, 82, 4, Color3.fromRGB(135, 255, 185), 2.08)
+
+    -- Fine limbs are concentrated in the upper crown rather than the middle.
+    addTreeSegment(470, 420, 430, 320, 6, Color3.fromRGB(75, 225, 135), 1.7)
+    addTreeSegment(430, 320, 340, 285, 4, Color3.fromRGB(100, 245, 155), 1.88)
+    addTreeSegment(430, 320, 390, 255, 4, Color3.fromRGB(85, 235, 145), 1.94)
+    addTreeSegment(730, 390, 780, 300, 6, Color3.fromRGB(75, 225, 135), 1.76)
+    addTreeSegment(780, 300, 900, 255, 4, Color3.fromRGB(100, 245, 155), 1.94)
+    addTreeSegment(780, 300, 820, 235, 4, Color3.fromRGB(85, 235, 145), 2.0)
+    addTreeSegment(500, 260, 455, 190, 5, Color3.fromRGB(85, 235, 145), 1.86)
+    addTreeSegment(455, 190, 380, 125, 4, Color3.fromRGB(110, 250, 165), 2.04)
+    addTreeSegment(455, 190, 420, 120, 4, Color3.fromRGB(95, 240, 150), 2.1)
+    addTreeSegment(740, 230, 800, 170, 5, Color3.fromRGB(85, 235, 145), 1.98)
+    addTreeSegment(800, 170, 920, 115, 4, Color3.fromRGB(110, 250, 165), 2.16)
+    addTreeSegment(800, 170, 835, 105, 4, Color3.fromRGB(95, 240, 150), 2.22)
+    addTreeSegment(530, 150, 490, 105, 4, Color3.fromRGB(95, 240, 150), 2.1)
+    addTreeSegment(690, 125, 725, 80, 4, Color3.fromRGB(95, 240, 150), 2.16)
+    addTreeSegment(590, 105, 535, 55, 4, Color3.fromRGB(105, 245, 155), 2.2)
+    addTreeSegment(590, 105, 650, 55, 4, Color3.fromRGB(105, 245, 155), 2.24)
+
+    for index, point in ipairs({
+        Vector2.new(300, 315),
+        Vector2.new(355, 330),
+        Vector2.new(350, 155),
+        Vector2.new(400, 165),
+        Vector2.new(440, 205),
+        Vector2.new(350, 60),
+        Vector2.new(455, 75),
+        Vector2.new(490, 105),
+        Vector2.new(220, 345),
+        Vector2.new(300, 345),
+        Vector2.new(405, 350),
+        Vector2.new(900, 285),
+        Vector2.new(850, 310),
+        Vector2.new(780, 315),
+        Vector2.new(700, 330),
+        Vector2.new(1010, 340),
+        Vector2.new(900, 125),
+        Vector2.new(850, 140),
+        Vector2.new(785, 175),
+        Vector2.new(720, 165),
+        Vector2.new(1020, 185),
+        Vector2.new(770, 60),
+        Vector2.new(890, 82),
+        Vector2.new(725, 80),
+        Vector2.new(535, 55),
+        Vector2.new(650, 55),
+        Vector2.new(590, 35),
+        Vector2.new(535, 95),
+        Vector2.new(650, 95),
+        Vector2.new(490, 155),
+        Vector2.new(720, 145),
+        Vector2.new(380, 125),
+        Vector2.new(420, 120),
+        Vector2.new(835, 105),
+        Vector2.new(920, 115),
+        Vector2.new(340, 285),
+        Vector2.new(390, 255),
+        Vector2.new(900, 255),
+        Vector2.new(820, 235),
+        Vector2.new(600, 130),
+        Vector2.new(620, 235),
+        Vector2.new(600, 235),
+        Vector2.new(430, 320),
+        Vector2.new(780, 300),
+    }) do
+        local leaf = Instance.new("Frame", lifeTree)
+        leaf.AnchorPoint = Vector2.new(0.5, 0.5)
+        leaf.BackgroundColor3 = index % 3 == 0
+            and Color3.fromRGB(225, 255, 160)
+            or Color3.fromRGB(80, 245, 145)
+        leaf.BackgroundTransparency = 1
+        leaf.BorderSizePixel = 0
+        leaf.Position = UDim2.new(0, point.X, 0, point.Y)
+        leaf.Size = UDim2.new(0, 0, 0, 0)
+        leaf.ZIndex = 4
+        Instance.new("UICorner", leaf).CornerRadius = UDim.new(1, 0)
+        local leafStroke = Instance.new("UIStroke", leaf)
+        leafStroke.Color = Color3.fromRGB(210, 255, 225)
+        leafStroke.Transparency = 0.25
+        task.delay(1.95 + index * 0.07, function()
+            if leaf.Parent then
+                local leafWidth = index % 4 == 0 and 38 or 29
+                local leafHeight = index % 4 == 0 and 20 or 15
+                tween(
+                    leaf,
+                    {
+                        Size = UDim2.new(0, leafWidth, 0, leafHeight),
+                        Rotation = index % 2 == 0 and -28 or 24,
+                        BackgroundTransparency = 0.08,
+                    },
+                    0.62,
+                    Enum.EasingStyle.Back
+                )
+            end
+        end)
+    end
+
+    local lifeGlint = Instance.new("Frame", lifeTree)
+    lifeGlint.BackgroundColor3 = Color3.fromRGB(235, 255, 220)
+    lifeGlint.BackgroundTransparency = 0.72
+    lifeGlint.BorderSizePixel = 0
+    lifeGlint.Position = UDim2.new(0, -34, 0, -30)
+    lifeGlint.Size = UDim2.new(0, 11, 1, 60)
+    lifeGlint.Rotation = 8
+    lifeGlint.ZIndex = 5
+    local lifeGlintGradient = Instance.new("UIGradient", lifeGlint)
+    lifeGlintGradient.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 1),
+        NumberSequenceKeypoint.new(0.5, 0),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    task.spawn(function()
+        task.wait(3.3)
+        while lifeGlint.Parent do
+            lifeGlint.Position = UDim2.new(0, -34, 0, -30)
+            tween(
+                lifeGlint,
+                {Position = UDim2.new(1, 20, 0, -30)},
+                1.7,
+                Enum.EasingStyle.Linear
+            )
+            task.wait(3.1)
+        end
+    end)
+
+    end
+
+    do
     local ringOne = Instance.new("Frame", card)
     ringOne.BackgroundTransparency = 1
     ringOne.Position = UDim2.new(0, 20, 0.5, -49)
@@ -5998,7 +7665,7 @@ function state.ShowPremiumIntro()
     orbit.ZIndex = 11
     Instance.new("UICorner", orbit).CornerRadius = UDim.new(1, 0)
     local orbitStroke = Instance.new("UIStroke", orbit)
-    orbitStroke.Color = Color3.fromRGB(185, 115, 255)
+    orbitStroke.Color = Color3.fromRGB(75, 235, 150)
     orbitStroke.Thickness = 1
     orbitStroke.Transparency = 0.38
 
@@ -6040,7 +7707,7 @@ function state.ShowPremiumIntro()
     title.Position = UDim2.new(0, 136, 0, 54)
     title.Size = UDim2.new(1, -160, 0, 38)
     title.Font = Enum.Font.GothamBlack
-    title.Text = "01 STAFF INTELLIGENCE"
+    title.Text = "PROJECT YGGDRASIL"
     title.TextColor3 = Color3.fromRGB(105, 225, 255)
     title.TextSize = 31
     title.TextStrokeColor3 = Color3.fromRGB(20, 35, 110)
@@ -6053,9 +7720,9 @@ function state.ShowPremiumIntro()
     titleGlint.Color = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(45, 155, 255)),
         ColorSequenceKeypoint.new(0.32, Color3.fromRGB(0, 240, 255)),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 145, 255)),
-        ColorSequenceKeypoint.new(0.68, Color3.fromRGB(85, 120, 255)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 180, 255))
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(225, 255, 235)),
+        ColorSequenceKeypoint.new(0.68, Color3.fromRGB(80, 235, 155)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(35, 195, 225))
     })
     titleGlint.Offset = Vector2.new(-1, 0)
     task.spawn(function()
@@ -6072,7 +7739,7 @@ function state.ShowPremiumIntro()
     edition.Position = UDim2.new(0, 138, 0, 96)
     edition.Size = UDim2.new(1, -164, 0, 24)
     edition.Font = Enum.Font.GothamBold
-    edition.Text = "01 PREMIUM CORE"
+    edition.Text = "◆ PREMIUM ACCES"
     edition.TextColor3 = Color3.fromRGB(255, 235, 55)
     edition.TextSize = 16
     edition.TextStrokeColor3 = Color3.fromRGB(120, 75, 0)
@@ -6117,7 +7784,7 @@ function state.ShowPremiumIntro()
     creatorName.Position = UDim2.new(0, 138, 0, 138)
     creatorName.Size = UDim2.new(1, -164, 0, 26)
     creatorName.Font = Enum.Font.GothamBold
-    creatorName.Text = "we1qxpo7j8fgkh3ok0ji"
+    creatorName.Text = "01 // Project Yggdrasil Team"
     creatorName.TextColor3 = Color3.fromRGB(155, 220, 255)
     creatorName.TextSize = 17
     creatorName.TextStrokeColor3 = Color3.fromRGB(25, 35, 105)
@@ -6159,7 +7826,7 @@ function state.ShowPremiumIntro()
     progressFill.Size = UDim2.new(0, 0, 1, 0)
     progressFill.ZIndex = 13
     Instance.new("UICorner", progressFill).CornerRadius = UDim.new(1, 0)
-    tween(progressFill, {Size = UDim2.new(1, 0, 1, 0)}, 2.8, Enum.EasingStyle.Quart)
+    tween(progressFill, {Size = UDim2.new(1, 0, 1, 0)}, 6.5, Enum.EasingStyle.Quart)
 
     local status = Instance.new("TextLabel", card)
     status.BackgroundTransparency = 1
@@ -6177,7 +7844,13 @@ function state.ShowPremiumIntro()
     end
 
     task.spawn(function()
-        task.wait(1)
+        task.wait(7)
+        -- End the botanical layer with the intro content so the tree cannot
+        -- linger behind the fading card during splash cleanup.
+        local endingLifeTree = splash:FindFirstChild("LifeTreeAwakening")
+        if endingLifeTree then
+            endingLifeTree.Visible = false
+        end
         tween(card, {BackgroundTransparency = 1, Size = UDim2.new(0, 560, 0, 248)}, 0.45, Enum.EasingStyle.Quad)
         tween(cardStroke, {Transparency = 1}, 0.45, Enum.EasingStyle.Quad)
         tween(backdrop, {BackgroundTransparency = 1}, 0.55, Enum.EasingStyle.Quad)
@@ -6235,9 +7908,30 @@ task.spawn(function()
     end
 end)
 
+local function detectPlayerOnJoin(player)
+    local bestClassification
+    for attempt = 1, 4 do
+        if not player.Parent then break end
+        local latest = classifyStaffPlayer(player)
+        if not bestClassification
+            or classificationPriority(latest.category) >= classificationPriority(bestClassification.category) then
+            bestClassification = latest
+        end
+        -- Keep the best result available if the player leaves during the
+        -- settling window; PlayerRemoving can then use it reliably.
+        state.StaffClassificationCache[player.UserId] = bestClassification
+        if attempt < 4 then task.wait(0.4) end
+    end
+    if player.Parent then
+        applyESP(player, bestClassification)
+        -- Re-check Auto Kick after group membership has had time to settle.
+        autoKickPlayerIfNeeded(player)
+    end
+end
+
 Players.PlayerAdded:Connect(function(p)
     autoKickPlayerIfNeeded(p)
-    applyESP(p)
+    task.spawn(detectPlayerOnJoin, p)
     -- Wait for group API to settle, then always refresh the staff list
     task.wait(1)
     pcall(refreshStaffList)
