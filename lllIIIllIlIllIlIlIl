@@ -193,7 +193,7 @@ end)
 -- === DATA ===
 local UNDERCOVER_USERIDS = {
     [4559062275] = true, [3860151481] = true, [10539855360] = true, [43829894] = true, [14100504] = true, [2707323976] = true,
-    [7627361] = true, [2912939789] = true, [1301544215] = true, [347225808] = true, [10565639315] = true, [1] = true,
+    [7627361] = true, [2912939789] = true, [1301544215] = true, [347225808] = true, [10565639315] = true, [1518920775] = true,
     [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < js everyone in the group not necessarily undercover | Admin
     [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < js everyone in the group not necessarily undercover | Mod
     [1] = true, [1] = true, [1] = true, [1] = true, [1] = true  -- < js everyone in the group not necessarily undercover | Mod
