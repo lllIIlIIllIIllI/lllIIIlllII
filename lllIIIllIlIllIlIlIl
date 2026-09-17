@@ -98,8 +98,8 @@ local config = {
         -- Target Aim intentionally ignores KO. The other three aim modes use
         -- the original Loomi BodyEffects.K.O safety check.
         TriggerKOCheck = true,
-        TriggerStart = 0.001,
-        TriggerEnd = 0.004,
+        TriggerStart = 0,
+        TriggerEnd = 0,
         CameraEnabled = false,
         CameraResolver = false,
         CameraMouseButton2 = true,
@@ -137,7 +137,7 @@ local config = {
         Resolver = false,
         SilentEnabled = false,
         SilentPrediction = 0,
-        FireInterval = 0.04,
+        FireInterval = 0.05,
     },
     FakeAutoArmorEnabled = false,
     AutoArmorUseHighMedium = false,
@@ -1600,6 +1600,7 @@ local function createPage(name)
         Target = theme.AccentSteel,
         Aim = theme.AccentPrimary,
         Fling = theme.AccentSecondary,
+        Get = theme.Success,
     }
     local rail = Instance.new("Frame", p)
     rail.Name = "PageAccentRail"
@@ -1617,6 +1618,7 @@ local staffPage      = createPage("Staff")
 local infoPage       = createPage("Information")
 local targetPage     = createPage("Target")
 local aimPage        = createPage("Aim")
+local getPage        = createPage("Get")
 aimPage.ScrollBarThickness = 3
 aimPage.ScrollBarImageColor3 = theme.AccentSecondary
 local autoKill = {
@@ -1633,6 +1635,8 @@ local autoKill = {
     WasActive = false,
     WasKnocked = false,
     Reloading = false,
+    ReloadingTools = {},
+    ReloadRequests = {},
     LastAmmo = nil,
     LastTool = nil,
     SeenAmmo = false,
@@ -1754,6 +1758,7 @@ navBtn("AIM", aimPage, 180)
 navBtn("TARGET / EXTRA", targetPage, 225)
 navBtn("FLING", flingPage, 270)
 navBtn("AUTO KILL", autoKill.UI.Page, 315)
+navBtn("GET", getPage, 360)
 
 local function createButton(name, desc, yPos, callback, parent, accentOverride)
     local buttonAccents = {theme.AccentPrimary, theme.AccentWarm, theme.AccentPink, theme.Success}
@@ -1829,6 +1834,87 @@ local function createButton(name, desc, yPos, callback, parent, accentOverride)
         tween(bg, {BackgroundColor3 = accent}, 0.2)
     end)
 end
+
+local function normalizeGetPadName(name)
+    return tostring(name or ""):lower():gsub("[%[%]%-_%s]", "")
+end
+
+local function clickGetPad(label, aliases)
+    local acceptedNames = {}
+    for _, alias in ipairs(aliases) do
+        acceptedNames[normalizeGetPadName(alias)] = true
+    end
+
+    local clicked = false
+    if type(fireclickdetector) == "function" then
+        for _, item in ipairs(Workspace:GetDescendants()) do
+            if acceptedNames[normalizeGetPadName(item.Name)] then
+                local detector = item:FindFirstChildWhichIsA("ClickDetector", true)
+                if detector then
+                    local ok = pcall(function() fireclickdetector(detector, 1) end)
+                    if ok then
+                        clicked = true
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    notify(
+        "GET",
+        clicked and (label .. " pad clicked") or (label .. " buy pad was not found"),
+        3,
+        clicked and "success" or "warning"
+    )
+end
+
+local getTitle = Instance.new("TextLabel", getPage)
+getTitle.BackgroundTransparency = 1
+getTitle.Size = UDim2.new(1, 0, 0, 28)
+getTitle.Font = Enum.Font.GothamBold
+getTitle.Text = "GET ITEMS"
+getTitle.TextColor3 = theme.AccentSecondary
+getTitle.TextSize = 15
+getTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+createButton("GET USP", "Click the USP buy pad", 38, function()
+    clickGetPad("USP", {"USP"})
+end, getPage, theme.Success)
+
+createButton("GET TACTICAL SHOTGUN", "Click the Tactical Shotgun buy pad", 93, function()
+    clickGetPad("Tactical Shotgun", {"Tactical Shotgun", "TacticalShotgun"})
+end, getPage, theme.AccentWarm)
+
+createButton("GET SHOTGUN", "Click the Shotgun buy pad", 148, function()
+    clickGetPad("Shotgun", {"Shotgun"})
+end, getPage, theme.AccentPrimary)
+
+createButton("GET SILENCER", "Click the Silencer buy pad", 203, function()
+    clickGetPad("Silencer", {"Silencer"})
+end, getPage, theme.AccentPink)
+
+createButton("GET PIZZA", "Click the Pizza buy pad", 258, function()
+    clickGetPad("Pizza", {"Pizza"})
+end, getPage, theme.Success)
+
+createButton("GET CHICKEN", "Click the Chicken buy pad", 313, function()
+    clickGetPad("Chicken", {"Chicken"})
+end, getPage, theme.AccentWarm)
+
+createButton("GET TACO", "Click the Taco buy pad", 368, function()
+    clickGetPad("Taco", {"Taco"})
+end, getPage, theme.AccentPrimary)
+
+createButton("GET MEDIUM ARMOR", "Click the Medium Armor buy pad", 423, function()
+    clickGetPad("Medium Armor", {"Medium Armor"})
+end, getPage, theme.AccentSteel)
+
+createButton("GET HIGH-MEDIUM ARMOR", "Click the High-Medium Armor buy pad", 478, function()
+    clickGetPad("High-Medium Armor", {"High-Medium Armor", "High Medium Armor"})
+end, getPage, theme.Owner)
+
+getPage.CanvasSize = UDim2.new(0, 0, 0, 550)
 
 local function createToggle(name, desc, yPos, initialValue, callback, parent, onColor, offColor)
     local enabledColor = onColor or theme.AccentPrimary
@@ -3528,17 +3614,27 @@ local function aimGetPlayerUnderMouse()
     return nil
 end
 
+local function aimHasTriggerBlockedToolEquipped()
+    local character = localPlayer.Character
+    if not character then return false end
+
+    for _, child in ipairs(character:GetChildren()) do
+        if child:IsA("Tool") then
+            local toolName = child.Name:lower():gsub("%s+", "")
+            if toolName == "katana" or toolName == "spray" then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function aimHookTool(tool)
     if not tool or not tool:IsA("Tool") or aimToolConnections[tool] then return end
     aimToolConnections[tool] = tool.Activated:Connect(function()
         if autoKill.Config.Enabled then return end
 
-        local triggerTargetUnderMouse = aimConfig.TriggerEnabled
-            and aimTriggerActive
-            and aimGetPlayerUnderMouse()
-
-        if not triggerTargetUnderMouse
-            and aimConfig.TargetAimEnabled and aimTargeting and aimTarget
+        if aimConfig.TargetAimEnabled and aimTargeting and aimTarget
             and aimTargetUsable(aimTarget, "TargetAim") then
             aimSendMouseUpdate(aimPredictedPosition(
                 aimTarget, "TargetAim", aimConfig.TargetAimPrediction, aimConfig.TargetAimResolver
@@ -3552,10 +3648,9 @@ local function aimHookTool(tool)
             aimSendMouseUpdate(autoKill.FirePosition)
         end
 
-        if not triggerTargetUnderMouse
-            and aimConfig.SilentEnabled and not aimSilentCancelled then
+        if aimConfig.SilentEnabled and not aimSilentCancelled then
             local silentTarget = aimSilentTarget
-            if silentTarget and aimTargetUsable(silentTarget, "Silent") then
+        if silentTarget and aimTargetUsable(silentTarget, "Silent") then
                 aimSilentTarget = silentTarget
                 aimSendMouseUpdate(aimPredictedPosition(
                     silentTarget, "Silent", aimConfig.SilentPrediction, aimConfig.SilentResolver
@@ -3688,10 +3783,11 @@ RunService.RenderStepped:Connect(function()
             or nil
     end
 
-    -- Triggerbot uses the player currently under the mouse. It must not reuse
-    -- the previous C-selected target, since that can redirect a later shot.
-    local triggerTarget = aimGetPlayerUnderMouse()
-    if aimConfig.TriggerEnabled and aimTriggerActive and triggerTarget
+    -- Triggerbot may arm with V, but it cannot select a separate target.
+    local triggerTarget = aimTarget
+    if aimConfig.TriggerEnabled and aimTriggerActive
+        and not aimHasTriggerBlockedToolEquipped()
+        and triggerTarget
         and aimTargetUsable(triggerTarget, "Trigger")
         and aimIsMouseOverTarget(triggerTarget)
         and tick() - aimLastClick >= aimTriggerDelay then
@@ -4014,29 +4110,76 @@ function autoKill.RestoreTools()
     table.clear(autoKill.ToolGrips)
 end
 
-function autoKill.FindUSP(container)
-    if not container then return nil end
+function autoKill.FindUSPs(container)
+    local usps = {}
+    if not container then return usps end
     for _, child in ipairs(container:GetChildren()) do
         local toolName = child.Name:lower():gsub("[%[%]]", "")
         if child:IsA("Tool") and toolName == "usp" then
-            return child
+            table.insert(usps, child)
         end
     end
-    return nil
+    return usps
+end
+
+function autoKill.FindUSP(container)
+    return autoKill.FindUSPs(container)[1]
+end
+
+function autoKill.GetUSPs()
+    local usps = {}
+    local seen = {}
+    local character = localPlayer.Character
+    local backpack = localPlayer:FindFirstChildOfClass("Backpack")
+
+    for _, container in ipairs({character, backpack}) do
+        for _, tool in ipairs(autoKill.FindUSPs(container)) do
+            if not seen[tool] then
+                seen[tool] = true
+                table.insert(usps, tool)
+            end
+        end
+    end
+    return usps
+end
+
+function autoKill.EquipUSPs()
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local usps = autoKill.GetUSPs()
+    if #usps == 0 then return usps end
+
+    local firstUSP = usps[1]
+    if firstUSP.Parent ~= character and humanoid then
+        pcall(function() humanoid:EquipTool(firstUSP) end)
+    end
+
+    -- Roblox normally equips one tool at a time. Keeping duplicate USPs
+    -- parented to the character lets Auto Kill activate each one in turn.
+    for _, tool in ipairs(usps) do
+        if tool.Parent ~= character then
+            pcall(function() tool.Parent = character end)
+        end
+    end
+    return autoKill.GetUSPs()
 end
 
 function autoKill.EquipUSP()
-    local character = localPlayer.Character
-    local equipped = autoKill.FindUSP(character)
-    if equipped then return equipped end
+    return autoKill.EquipUSPs()[1]
+end
 
-    local backpack = localPlayer:FindFirstChildOfClass("Backpack")
-    local usp = autoKill.FindUSP(backpack)
+function autoKill.EquipUSPForShot(tool)
+    local character = localPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    if usp and humanoid then
-        pcall(function() humanoid:EquipTool(usp) end)
+    local backpack = localPlayer:FindFirstChildOfClass("Backpack")
+    if not tool or not humanoid or not backpack then return false end
+
+    local activeTool = character:FindFirstChildOfClass("Tool")
+    if activeTool ~= tool then
+        pcall(function() tool.Parent = backpack end)
+        pcall(function() humanoid:EquipTool(tool) end)
     end
-    return autoKill.FindUSP(character)
+    return tool.Parent == character
 end
 
 function autoKill.BuyUSPOnce()
@@ -4057,18 +4200,22 @@ function autoKill.BuyUSPOnce()
     return false
 end
 
-function autoKill.EnsureUSP()
-    local equipped = autoKill.EquipUSP()
-    if equipped then return equipped end
+function autoKill.EnsureUSPs()
+    local equipped = autoKill.EquipUSPs()
+    if #equipped > 0 then return equipped end
     if autoKill.BuyUSPOnce() then
         local deadline = os.clock() + 0.45
         repeat
             task.wait(0.05)
-            equipped = autoKill.EquipUSP()
-            if equipped then return equipped end
+            equipped = autoKill.EquipUSPs()
+            if #equipped > 0 then return equipped end
         until os.clock() >= deadline
     end
-    return autoKill.EquipUSP()
+    return autoKill.EquipUSPs()
+end
+
+function autoKill.EnsureUSP()
+    return autoKill.EnsureUSPs()[1]
 end
 
 function autoKill.ApplyToolLift(tool)
@@ -4114,34 +4261,81 @@ function autoKill.FollowTarget(target)
     return true
 end
 
-function autoKill.ReloadTool(force)
-    if autoKill.Reloading then return end
+function autoKill.ReloadTool(toolOrForce, force)
+    local tool = toolOrForce
+    if type(toolOrForce) == "boolean" then
+        force = toolOrForce
+        tool = nil
+    end
 
     local character = localPlayer.Character
-    local tool = character and character:FindFirstChildOfClass("Tool")
+    tool = tool or (character and character:FindFirstChildOfClass("Tool"))
     local ammo = tool and tool:FindFirstChild("AMMO", true)
     if not tool or not ammo then return end
     if not force and tonumber(ammo.Value) ~= 0 then return end
+    if autoKill.ReloadingTools[tool] then return end
+    if autoKill.Reloading then
+        autoKill.ReloadRequests[tool] = force == true
+        return
+    end
+    if not force then
+        -- A shot can briefly replicate AMMO as zero before the weapon state
+        -- settles. Confirm the empty state before starting a reload.
+        task.wait(0.08)
+        if not tool.Parent or tonumber(ammo.Value) ~= 0 then return end
+    end
+    if not autoKill.EquipUSPForShot(tool) then return end
 
+    autoKill.ReloadingTools[tool] = true
     autoKill.Reloading = true
     task.spawn(function()
         local start = os.clock()
+        local maxAmmo = tonumber(ammo:GetAttribute("MaxAmmo"))
+            or tonumber(tool:GetAttribute("MaxAmmo"))
+            or 15
         while autoKill.Config.Enabled
             and autoKill.Target
             and tool.Parent
             and os.clock() - start < (force and 0.35 or 2) do
+            if not autoKill.EquipUSPForShot(tool) then break end
             aimVirtualInput:SendKeyEvent(true, Enum.KeyCode.R, false, game)
             task.wait(0.02)
             aimVirtualInput:SendKeyEvent(false, Enum.KeyCode.R, false, game)
             task.wait(0.02)
 
             local currentAmmo = tonumber(ammo.Value)
-            if not force and currentAmmo and currentAmmo > 0 then break end
-            if force and currentAmmo and currentAmmo > 0
-                and os.clock() - start > 0.08 then break end
+            if currentAmmo and currentAmmo >= maxAmmo then break end
         end
-        autoKill.Reloading = false
+        autoKill.ReloadingTools[tool] = nil
+        local nextTool
+        local nextForce = false
+        for queuedTool, queuedForce in pairs(autoKill.ReloadRequests) do
+            if queuedTool and queuedTool.Parent then
+                local queuedAmmo = queuedTool:FindFirstChild("AMMO", true)
+                local queuedValue = queuedAmmo and tonumber(queuedAmmo.Value)
+                if queuedForce or (queuedValue and queuedValue <= 0) then
+                    nextTool = queuedTool
+                    nextForce = queuedForce
+                    break
+                end
+            end
+            autoKill.ReloadRequests[queuedTool] = nil
+        end
+
+        if nextTool then
+            autoKill.ReloadRequests[nextTool] = nil
+            autoKill.Reloading = false
+            autoKill.ReloadTool(nextTool, nextForce)
+        else
+            autoKill.Reloading = next(autoKill.ReloadingTools) ~= nil
+        end
     end)
+end
+
+function autoKill.ReloadUSPs(force)
+    for _, tool in ipairs(autoKill.EquipUSPs()) do
+        autoKill.ReloadTool(tool, force)
+    end
 end
 
 function autoKill.TrackAmmo(tool)
@@ -4170,7 +4364,7 @@ function autoKill.TrackAmmo(tool)
 
     local now = os.clock()
     if current == 0 and now - autoKill.ReloadCooldown > 0.3 then
-        autoKill.ReloadTool(false)
+        autoKill.ReloadTool(tool, false)
         autoKill.ReloadCooldown = now
     elseif current > 0 then
         autoKill.ReloadCooldown = 0
@@ -4199,8 +4393,7 @@ function autoKill.StartFireLoop()
                 break
             end
 
-            local character = localPlayer.Character
-            local tool = autoKill.EnsureUSP()
+            local tools = autoKill.EnsureUSPs()
             local position = aimPredictedPosition(
                 fireTarget, "TargetAim", autoKill.PredictionVector, autoKill.Config.Resolver
             )
@@ -4220,19 +4413,31 @@ function autoKill.StartFireLoop()
             autoKill.FirePosition = position
             autoKill.SilentFirePosition = silentPosition
 
-            local ammo = tool and tool:FindFirstChild("AMMO", true)
-            local ammoEmpty = ammo and tonumber(ammo.Value) and tonumber(ammo.Value) <= 0
-            if tool and not autoKill.Reloading and not ammoEmpty and position then
-                if silentPosition then
-                    aimSendMouseUpdate(silentPosition)
-                    pcall(function() tool:Activate() end)
+            if position then
+                for _, tool in ipairs(tools) do
+                    autoKill.ApplyToolLift(tool)
+                    local ammo = tool:FindFirstChild("AMMO", true)
+                    local ammoEmpty = ammo and tonumber(ammo.Value) and tonumber(ammo.Value) <= 0
+                    if not autoKill.Reloading
+                        and not autoKill.ReloadingTools[tool]
+                        and not ammoEmpty
+                        and autoKill.EquipUSPForShot(tool) then
+                        if silentPosition then
+                            aimSendMouseUpdate(silentPosition)
+                            pcall(function() tool:Activate() end)
+                        end
+                        aimSendMouseUpdate(position)
+                        pcall(function() tool:Activate() end)
+                    elseif ammoEmpty then
+                        autoKill.ReloadTool(tool, false)
+                    end
                 end
-                aimSendMouseUpdate(position)
-                pcall(function() tool:Activate() end)
-            elseif ammoEmpty then
-                autoKill.ReloadTool(false)
             end
-            task.wait(math.max(0.04, tonumber(autoKill.Config.FireInterval) or 0.04))
+            if #tools <= 2 then
+                task.wait(0.00005)
+            else
+                task.wait(0.01)
+            end
         end
         if autoKill.FireLoopId == loopId then
             autoKill.FireLoopRunning = false
@@ -4251,6 +4456,9 @@ function autoKill.StopRuntime()
     autoKill.LastTool = nil
     autoKill.SeenAmmo = false
     autoKill.ReloadCooldown = 0
+    table.clear(autoKill.ReloadingTools)
+    table.clear(autoKill.ReloadRequests)
+    autoKill.Reloading = false
     if autoKill.WasActive then
         autoKill.RestoreTools()
         autoKill.RestoreCamera()
@@ -4418,7 +4626,7 @@ RunService.RenderStepped:Connect(function()
         -- Keep following the target, but do not force-equip or fire while it
         -- is KO/downed, resetting, or at/below the 0.5 health threshold.
         if not autoKill.WasKnocked and targetHumanoid then
-            autoKill.ReloadTool(true)
+            autoKill.ReloadUSPs(true)
         end
         autoKill.WasKnocked = true
         autoKill.FirePosition = nil
@@ -4444,9 +4652,11 @@ RunService.RenderStepped:Connect(function()
     end
 
     autoKill.WasKnocked = false
-    local tool = autoKill.EnsureUSP()
-    autoKill.ApplyToolLift(tool)
-    autoKill.TrackAmmo(tool)
+    local tools = autoKill.EnsureUSPs()
+    for _, tool in ipairs(tools) do
+        autoKill.ApplyToolLift(tool)
+    end
+    autoKill.TrackAmmo(tools[1])
     local autoKillPrediction = tonumber(autoKill.Config.Prediction) or 0
     autoKill.PredictionVector.X = autoKillPrediction
     autoKill.PredictionVector.Y = 0
@@ -4459,7 +4669,7 @@ RunService.RenderStepped:Connect(function()
 
     if predicted then
         autoKill.StartFireLoop()
-        if not tool then
+        if #tools == 0 then
             autoKill.SetStatus("Equip a tool to start firing", theme.Warning)
         end
     end
