@@ -1601,6 +1601,7 @@ local function createPage(name)
         Target = theme.AccentSteel,
         Aim = theme.AccentPrimary,
         Fling = theme.AccentSecondary,
+        Anti = theme.AccentPrimary,
         Get = theme.Success,
     }
     local rail = Instance.new("Frame", p)
@@ -1680,6 +1681,7 @@ staffListPage.AutomaticCanvasSize = Enum.AutomaticSize.Y
 staffListPage.Visible  = false
 
 local flingPage = createPage("Fling")
+local antiPage = createPage("Anti")
 
 local currentPage = profilePage   -- opens on the account page by default
 currentPage.Visible = true
@@ -1758,8 +1760,9 @@ navBtn("STAFF LIST", staffListPage, 135)
 navBtn("AIM", aimPage, 180)
 navBtn("TARGET / EXTRA", targetPage, 225)
 navBtn("FLING", flingPage, 270)
-navBtn("AUTO KILL", autoKill.UI.Page, 315)
-navBtn("GET", getPage, 360)
+navBtn("ANTI", antiPage, 315)
+navBtn("AUTO KILL", autoKill.UI.Page, 360)
+navBtn("GET", getPage, 405)
 
 local function createButton(name, desc, yPos, callback, parent, accentOverride)
     local buttonAccents = {theme.AccentPrimary, theme.AccentWarm, theme.AccentPink, theme.Success}
@@ -2008,6 +2011,325 @@ local function createToggle(name, desc, yPos, initialValue, callback, parent, on
     end)
     return control
 end
+
+-- ======================================================== --
+--  ANTI PAGE
+--  Session-only safety/movement utilities. These controls do
+--  not participate in the existing settings system.
+-- ======================================================== --
+
+local antiFlingEnabled = false
+local antiVoidEnabled = false
+local antiFlingConnection = nil
+local antiVoidConnection = nil
+local antiVoidOriginalHeight = nil
+
+local function setAntiFlingEnabled(enabled)
+    antiFlingEnabled = enabled == true
+
+    if antiFlingConnection then
+        antiFlingConnection:Disconnect()
+        antiFlingConnection = nil
+    end
+
+    if antiFlingEnabled then
+        antiFlingConnection = RunService.Stepped:Connect(function()
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= localPlayer and player.Character then
+                    for _, v in ipairs(player.Character:GetDescendants()) do
+                        if v:IsA("BasePart") then
+                            v.CanCollide = false
+                        end
+                    end
+                end
+            end
+        end)
+    end
+end
+
+local function setAntiVoidEnabled(enabled)
+    antiVoidEnabled = enabled == true
+
+    -- Azure's Anti Void implementation does not teleport or respawn.
+    -- It removes the local FallenPartsDestroyHeight barrier while enabled.
+    if antiVoidEnabled then
+        if antiVoidOriginalHeight == nil then
+            antiVoidOriginalHeight = Workspace.FallenPartsDestroyHeight
+        end
+
+        pcall(function()
+            Workspace.FallenPartsDestroyHeight = -math.huge
+        end)
+    else
+        if antiVoidConnection then
+            antiVoidConnection:Disconnect()
+            antiVoidConnection = nil
+        end
+
+        if antiVoidOriginalHeight ~= nil then
+            local originalHeight = antiVoidOriginalHeight
+            antiVoidOriginalHeight = nil
+            pcall(function()
+                Workspace.FallenPartsDestroyHeight = originalHeight
+            end)
+        end
+    end
+end
+
+-- Destroy Cheaters / position desync.
+-- This is intentionally session-only: no setting is loaded or saved and
+-- the keybind always starts unbound.
+local destroyCheatersEnabled = false
+local destroyCheatersKey = nil
+local destroyCheatersConnection = nil
+local destroyCheatersKeyListening = false
+local destroyCheatersCancelCapture = nil
+local destroyCheatersPreviousKeyText = "NONE"
+
+local cameraAnchor = Instance.new("Part")
+cameraAnchor.Name = "YggdrasilDestroyCheatersCameraAnchor"
+cameraAnchor.Transparency = 1
+cameraAnchor.CanCollide = false
+cameraAnchor.CanTouch = false
+cameraAnchor.CanQuery = false
+cameraAnchor.Anchored = true
+cameraAnchor.Size = Vector3.new(1, 1, 1)
+cameraAnchor.Parent = Workspace
+
+local cameraAnchorStepConnection = RunService.Stepped:Connect(function()
+    if not destroyCheatersEnabled then return end
+    local character = localPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if rootPart then
+        cameraAnchor.Position = rootPart.Position + Vector3.new(0, 2, 0)
+    end
+end)
+
+local cameraSubjectConnection = RunService.RenderStepped:Connect(function()
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+
+    if destroyCheatersEnabled then
+        if camera.CameraSubject ~= cameraAnchor then
+            camera.CameraSubject = cameraAnchor
+        end
+    elseif humanoid and camera.CameraSubject ~= humanoid then
+        camera.CameraSubject = humanoid
+    end
+end)
+
+local function setDestroyCheatersEnabled(enabled)
+    destroyCheatersEnabled = enabled == true
+
+    if destroyCheatersConnection then
+        destroyCheatersConnection:Disconnect()
+        destroyCheatersConnection = nil
+    end
+
+    if destroyCheatersEnabled then
+        local desyncBusy = false
+        destroyCheatersConnection = RunService.Heartbeat:Connect(function()
+            if desyncBusy or not destroyCheatersEnabled then return end
+
+            local character = localPlayer.Character
+            local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+            if not rootPart then return end
+
+            desyncBusy = true
+            local originalCFrame = rootPart.CFrame
+            rootPart.CFrame = originalCFrame * CFrame.new(0, -1000348, 0)
+            RunService.RenderStepped:Wait()
+
+            if rootPart.Parent then
+                rootPart.CFrame = originalCFrame
+            end
+            desyncBusy = false
+        end)
+    end
+end
+
+local function makeAntiKeybindControl()
+    local keyAccent = theme.OneStaff
+    local f = Instance.new("Frame", antiPage)
+    f.BackgroundColor3 = theme.BackgroundSecondary
+    f.ClipsDescendants = true
+    f.Position = UDim2.new(0, 0, 0, 189)
+    f.Size = UDim2.new(1, 0, 0, 55)
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 12)
+    addGradient(f, theme.BackgroundSecondary, theme.BackgroundTertiary, 0)
+
+    local stroke = Instance.new("UIStroke", f)
+    stroke.Color = keyAccent
+    stroke.Thickness = 2
+    stroke.Transparency = 0.8
+
+    local accentBar = Instance.new("Frame", f)
+    accentBar.BackgroundColor3 = keyAccent
+    accentBar.BackgroundTransparency = 0.55
+    accentBar.BorderSizePixel = 0
+    accentBar.Position = UDim2.new(0, 0, 0, 9)
+    accentBar.Size = UDim2.new(0, 3, 1, -18)
+    Instance.new("UICorner", accentBar).CornerRadius = UDim.new(1, 0)
+
+    local title = Instance.new("TextLabel", f)
+    title.BackgroundTransparency = 1
+    title.Position = UDim2.new(0, 14, 0, 8)
+    title.Size = UDim2.new(1, -116, 0, 18)
+    title.Font = Enum.Font.GothamBold
+    title.Text = "DESTROY CHEATERS KEY"
+    title.TextColor3 = theme.TextPrimary
+    title.TextSize = 13
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local desc = Instance.new("TextLabel", f)
+    desc.BackgroundTransparency = 1
+    desc.Position = UDim2.new(0, 14, 0, 28)
+    desc.Size = UDim2.new(1, -116, 0, 20)
+    desc.Font = Enum.Font.Gotham
+    desc.Text = "Optional keybind | always starts unbound"
+    desc.TextColor3 = theme.TextSecondary
+    desc.TextSize = 11
+    desc.TextXAlignment = Enum.TextXAlignment.Left
+
+    local keyButton = Instance.new("TextButton", f)
+    keyButton.BackgroundColor3 = theme.BackgroundTertiary
+    keyButton.Position = UDim2.new(1, -96, 0.5, -15)
+    keyButton.Size = UDim2.new(0, 82, 0, 30)
+    keyButton.Font = Enum.Font.GothamBold
+    keyButton.Text = "NONE"
+    keyButton.TextColor3 = theme.TextPrimary
+    keyButton.TextSize = 10
+    keyButton.AutoButtonColor = false
+    Instance.new("UICorner", keyButton).CornerRadius = UDim.new(0, 8)
+
+    local function clearCapture()
+        destroyCheatersKeyListening = false
+        if state.CancelKeybindCapture == destroyCheatersCancelCapture then
+            state.CancelKeybindCapture = nil
+        end
+        state.KeybindCapture = false
+    end
+
+    local function unbind()
+        clearCapture()
+        destroyCheatersKey = nil
+        keyButton.Text = "NONE"
+        keyButton.BackgroundColor3 = theme.BackgroundTertiary
+        tween(stroke, {Transparency = 0.8}, 0.2)
+        tween(accentBar, {BackgroundTransparency = 0.55}, 0.2)
+    end
+
+    destroyCheatersCancelCapture = unbind
+    keyButton.MouseButton1Click:Connect(function()
+        if destroyCheatersKeyListening then
+            unbind()
+            return
+        end
+
+        if state.CancelKeybindCapture then
+            state.CancelKeybindCapture()
+        end
+
+        destroyCheatersKeyListening = true
+        state.KeybindCapture = true
+        state.CancelKeybindCapture = destroyCheatersCancelCapture
+        destroyCheatersPreviousKeyText = keyButton.Text
+        keyButton.Text = "PRESS KEY"
+        keyButton.BackgroundColor3 = theme.AccentSecondary
+    end)
+
+    UserInputService.InputBegan:Connect(function(input)
+        if not destroyCheatersKeyListening then return end
+        if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+        if input.KeyCode == Enum.KeyCode.Escape then
+            clearCapture()
+            keyButton.Text = destroyCheatersPreviousKeyText
+            keyButton.BackgroundColor3 = destroyCheatersKey and keyAccent or theme.BackgroundTertiary
+            return
+        end
+
+        if input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.Delete then
+            unbind()
+            return
+        end
+
+        if input.KeyCode == Enum.KeyCode.Unknown then return end
+
+        destroyCheatersKey = input.KeyCode
+        clearCapture()
+        keyButton.Text = input.KeyCode.Name
+        keyButton.BackgroundColor3 = keyAccent
+        tween(stroke, {Transparency = 0.2}, 0.2)
+        tween(accentBar, {BackgroundTransparency = 0}, 0.2)
+    end)
+end
+
+local function createSectionHeader(parent, text, yPos, color)
+    color = color or theme.AccentSecondary
+    local holder = Instance.new("Frame", parent)
+    holder.BackgroundTransparency = 1
+    holder.Position = UDim2.new(0, 0, 0, yPos)
+    holder.Size = UDim2.new(1, 0, 0, 24)
+
+    local label = Instance.new("TextLabel", holder)
+    label.BackgroundTransparency = 1
+    label.Size = UDim2.new(0, 170, 1, 0)
+    label.Font = Enum.Font.GothamBold
+    label.Text = text
+    label.TextColor3 = color
+    label.TextSize = 12
+    label.TextXAlignment = Enum.TextXAlignment.Left
+
+    local line = Instance.new("Frame", holder)
+    line.BackgroundColor3 = color
+    line.BackgroundTransparency = 0.55
+    line.BorderSizePixel = 0
+    line.Position = UDim2.new(0, 176, 0.5, 0)
+    line.Size = UDim2.new(1, -176, 0, 1)
+    local dot = Instance.new("Frame", holder)
+    dot.BackgroundColor3 = color
+    dot.BorderSizePixel = 0
+    dot.Position = UDim2.new(0, 165, 0.5, -3)
+    dot.Size = UDim2.new(0, 6, 0, 6)
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+    return holder
+end
+
+createSectionHeader(antiPage, "PLAYER PROTECTION", 0, theme.AccentSecondary)
+
+createToggle(
+    "ANTI FLING",
+    "Disable collisions on other players",
+    32,
+    false,
+    setAntiFlingEnabled,
+    antiPage
+)
+
+createToggle(
+    "ANTI VOID",
+    "Respawn when you cross the void height",
+    92,
+    false,
+    setAntiVoidEnabled,
+    antiPage
+)
+
+createSectionHeader(antiPage, "DESYNC CONTROL", 157, theme.OneStaff)
+makeAntiKeybindControl()
+antiPage.CanvasSize = UDim2.new(0, 0, 0, 260)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe or isPlayerTyping() then return end
+    if destroyCheatersKey
+        and input.UserInputType == Enum.UserInputType.Keyboard
+        and input.KeyCode == destroyCheatersKey then
+        setDestroyCheatersEnabled(not destroyCheatersEnabled)
+    end
+end)
 
 -- Overseer stomp presentation. Every client running this script observes the
 -- Overseer's replicated character state and renders Yggdrasil locally.
@@ -3015,37 +3337,6 @@ stompEffects.PlayerRemovingConnection = Players.PlayerRemoving:Connect(function(
     end
 end)
 stompEffects.RefreshOverseer()
-
-local function createSectionHeader(parent, text, yPos, color)
-    color = color or theme.AccentSecondary
-    local holder = Instance.new("Frame", parent)
-    holder.BackgroundTransparency = 1
-    holder.Position = UDim2.new(0, 0, 0, yPos)
-    holder.Size = UDim2.new(1, 0, 0, 24)
-
-    local label = Instance.new("TextLabel", holder)
-    label.BackgroundTransparency = 1
-    label.Size = UDim2.new(0, 170, 1, 0)
-    label.Font = Enum.Font.GothamBold
-    label.Text = text
-    label.TextColor3 = color
-    label.TextSize = 12
-    label.TextXAlignment = Enum.TextXAlignment.Left
-
-    local line = Instance.new("Frame", holder)
-    line.BackgroundColor3 = color
-    line.BackgroundTransparency = 0.55
-    line.BorderSizePixel = 0
-    line.Position = UDim2.new(0, 176, 0.5, 0)
-    line.Size = UDim2.new(1, -176, 0, 1)
-    local dot = Instance.new("Frame", holder)
-    dot.BackgroundColor3 = color
-    dot.BorderSizePixel = 0
-    dot.Position = UDim2.new(0, 165, 0.5, -3)
-    dot.Size = UDim2.new(0, 6, 0, 6)
-    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
-    return holder
-end
 
 local function createKeybindControl(name, desc, yPos, initialKey, callback, parent, validateKey, accentOverride)
     local keyAccent = accentOverride or (yPos % 2 == 0 and theme.AccentPrimary or theme.AccentPink)
