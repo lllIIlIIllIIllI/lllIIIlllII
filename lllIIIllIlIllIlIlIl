@@ -2085,6 +2085,7 @@ local destroyCheatersConnection = nil
 local destroyCheatersKeyListening = false
 local destroyCheatersCancelCapture = nil
 local destroyCheatersPreviousKeyText = "NONE"
+local spectating = false
 
 local cameraAnchor = Instance.new("Part")
 cameraAnchor.Name = "YggdrasilDestroyCheatersCameraAnchor"
@@ -2106,6 +2107,10 @@ local cameraAnchorStepConnection = RunService.Stepped:Connect(function()
 end)
 
 local cameraSubjectConnection = RunService.RenderStepped:Connect(function()
+    -- Spectate owns the camera while active; Destroy mode must not pull it
+    -- back to the local anchor (or local Humanoid) on every rendered frame.
+    if spectating then return end
+
     local character = localPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     local camera = Workspace.CurrentCamera
@@ -5182,39 +5187,68 @@ createToggle("Save Settings", "Save Target / Extra and Auto Armor settings", 92,
     end, targetPage)
 
 createSectionHeader(targetPage, "PLAYER TARGETING", 152, theme.AccentSecondary)
-local spectating = false
 local spectateConn
-createToggle("View target", "View the target perspective", 184, false, function(v)
+local spectateToggleControl
+local function restoreCameraAfterSpectate()
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+    camera.CameraType = Enum.CameraType.Custom
+    if destroyCheatersEnabled and cameraAnchor.Parent then
+        camera.CameraSubject = cameraAnchor
+        return
+    end
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid then camera.CameraSubject = humanoid end
+end
+
+local function stopSpectating()
+    spectating = false
+    if spectateConn then
+        spectateConn:Disconnect()
+        spectateConn = nil
+    end
+    restoreCameraAfterSpectate()
+end
+
+spectateToggleControl = createToggle("View target", "View the target perspective", 184, false, function(v)
     if v then
         local target = getBestMatch(input.Text)
         if target and target ~= localPlayer then
             input.Text = target.Name
             suggestion.Text = ""
             local function updateCamera()
-                if target.Character and target.Character:FindFirstChildOfClass("Humanoid") then
-                    Workspace.CurrentCamera.CameraSubject = target.Character:FindFirstChildOfClass("Humanoid")
+                local camera = Workspace.CurrentCamera
+                local humanoid = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+                if camera and humanoid then
+                    camera.CameraType = Enum.CameraType.Custom
+                    camera.CameraSubject = humanoid
                 end
             end
             if spectateConn then spectateConn:Disconnect() end
+            spectating = true
+            updateCamera()
             spectateConn = RunService.RenderStepped:Connect(function()
                 if spectating and target.Parent then
                     updateCamera()
                 elseif not target.Parent then
-                    v = false
+                    stopSpectating()
+                    if spectateToggleControl then
+                        spectateToggleControl.SetValue(false, false)
+                    end
+                    notify("SPECTATE", "Target left; camera restored.", 3, "warning")
                 end
             end)
-            spectating = true
             notify("SPECTATING", "Viewing " .. target.DisplayName, 3, "success")
         else
-            spectating = false
+            stopSpectating()
+            if spectateToggleControl then
+                spectateToggleControl.SetValue(false, false)
+            end
             notify("ERROR", target == localPlayer and "Cannot spectate self" or "Player not found", 3, "warning")
         end
     else
-        spectating = false
-        if spectateConn then spectateConn:Disconnect() end
-        if localPlayer.Character and localPlayer.Character:FindFirstChildOfClass("Humanoid") then
-            Workspace.CurrentCamera.CameraSubject = localPlayer.Character:FindFirstChildOfClass("Humanoid")
-        end
+        stopSpectating()
     end
 end, targetPage)
 
