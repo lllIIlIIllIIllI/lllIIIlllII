@@ -1652,7 +1652,10 @@ local autoKill = {
     RespawnCharacter = nil,
     RespawnHiddenParts = {},
     CharacterCFrameBeforeAutoKill = nil,
+    CameraTypeBeforeAutoKill = nil,
     CameraSubjectBeforeAutoKill = nil,
+    CameraLocked = false,
+    CameraLockCFrame = nil,
     PredictionVector = { X = 0, Y = 0, Z = 0 },
 }
 
@@ -2107,9 +2110,9 @@ local cameraAnchorStepConnection = RunService.Stepped:Connect(function()
 end)
 
 local cameraSubjectConnection = RunService.RenderStepped:Connect(function()
-    -- Spectate owns the camera while active; Destroy mode must not pull it
-    -- back to the local anchor (or local Humanoid) on every rendered frame.
-    if spectating then return end
+    -- Manual spectate and Auto Kill each own the camera while active;
+    -- Destroy mode only supplies the fallback camera subject.
+    if spectating or autoKill.CameraLocked then return end
 
     local character = localPlayer.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -4300,6 +4303,9 @@ function autoKill.RestoreCamera()
 end
 
 function autoKill.LockCamera(target)
+    -- Do not take the camera away from an explicitly selected spectate target.
+    if spectating then return end
+
     local camera = Workspace.CurrentCamera
     if not camera then return end
 
