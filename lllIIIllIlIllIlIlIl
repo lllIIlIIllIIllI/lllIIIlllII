@@ -192,12 +192,17 @@ end)
 
 -- === DATA ===
 local UNDERCOVER_USERIDS = {
-    [43829894] = true, [3860151481] = true, [347225808] = true, [8974019762] = true, [2912939789] = true, [2707323976] = true, -- < HIGH RANKS
-    [7627361] = true, [4423560567] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < Assistant
-    [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < WL
-    [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < js everyone in the group not necessarily undercover | WL
-    [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < js everyone in the group not necessarily undercover | Mod WL
-    [1] = true, [1] = true, [1] = true, [1] = true, [1] = true  -- < js everyone in the group not necessarily undercover | Mod WL
+    [43829894] = true, [4831719438] = true, [1] = true, [8974019762] = true, [1] = true, [2707323976] = true, -- < HIGH RANKS
+    [1892619369] = true, [2346725415] = true, [1] = true, [1] = true, [1] = true, [1] = true, -- < PANEL   
+    [3860151481] = true, [347225808] = true, [2912939789] = true, [1] = true, [1] = true, [1] = true, -- < NOT SURE
+    [37656392] = true, [4423560567] = true, [11415140267] = true, [555909464] = true, [2596448591] = true, [5819296756] = true, -- < Assistant
+    [2465455931] = true, [405520450] = true, [11649963728] = true, [1625652054] = true, [2357314326] = true, [8880391170] = true, -- < Assistant
+    [4118523080] = true, [7627361] = true, -- < Assistant
+    [8149539073] = true, [6141732329] = true, [1712989363] = true, [371033600] = true, [943632452] = true, [3832186796] = true, -- < WL
+    [1951373781] = true, [1620454470] = true, [557269016] = true, [7004319556] = true, [540014863] = true, [1301544215] = true, -- < WL
+    [14687312] = true, [10564599328] = true, [2269629094] = true, -- < WL
+    [7372892804] = true, [15526517] = true, [1792384114] = true, [417761021] = true, [213315] = true, [5035211121] = true, -- < Mod WL
+    [3608076465] = true, [3753555] = true, [1460802618] = true, [8024390582] = true, [1652412968] = true -- < Mod WL
 }
 
 -- These IDs are 01 Staff titles only. They are never treated as VF main staff.
